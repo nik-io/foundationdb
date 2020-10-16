@@ -382,7 +382,7 @@ public:
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
-            printf("%d events in queue\n");
+            printf("%d events in queue\n",n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -707,7 +707,7 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 
 			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
-			printf("POLLED with rc %d %s\n",rc,strerror(errno));
+			printf("POLLED with rc %d %s\n",rc,strerror(-rc));
 
 
 			if (rc<0) {
