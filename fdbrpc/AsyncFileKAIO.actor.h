@@ -619,6 +619,10 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileKAIO* owner ) {
+		printf("KAIO enquein data size %lu for op %s\n",int64_t(io->buf),op);
+                ASSERT( int64_t(io->buf) % 4096 == 0);
+                ASSERT(io->offset % 4096 == 0);
+                ASSERT( io->nbytes % 4096 == 0 );
 		ASSERT( int64_t(io->buf) % 4096 == 0 && io->offset % 4096 == 0 && io->nbytes % 4096 == 0 );
 
 		KAIOLogBlockEvent(owner->logFile, io, OpLogEntry::START);

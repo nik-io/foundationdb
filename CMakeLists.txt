@@ -150,6 +150,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   include_directories(/usr/local/include)
 endif()
 
+include_directories(/root/liburing/src/include)
+
 include(CompileBoost)
 add_subdirectory(flow)
 add_subdirectory(fdbrpc)

@@ -223,6 +223,8 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	init( HEALTH_MONITOR_MARK_FAILED_UNSTABLE_CONNECTIONS,    true );
 	init( HEALTH_MONITOR_CLIENT_REQUEST_INTERVAL_SECS,          30 );
 	init( HEALTH_MONITOR_CONNECTION_MAX_CLOSED,                  5 );
+
+        init( ENABLE_IO_URING,					  false);
 }
 // clang-format on
 
@@ -238,6 +240,7 @@ static std::string toLower( std::string const& name ) {
 
 bool Knobs::setKnob( std::string const& knob, std::string const& value ) {
 	explicitlySetKnobs.insert(toLower(knob));
+	printf("Explicitly setting knob %s to %s\n",knob.c_str(),value.c_str());
 	if (double_knobs.count(knob)) {
 		double v;
 		int n=0;
@@ -294,6 +297,7 @@ bool Knobs::setKnob( std::string const& knob, std::string const& value ) {
 
 void Knobs::initKnob( double& knob, double value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
+		printf("Setting knob %s to %f\n",name.c_str(),value);
 		knob = value;
 		double_knobs[toLower(name)] = &knob;
 	}
@@ -301,6 +305,7 @@ void Knobs::initKnob( double& knob, double value, std::string const& name ) {
 
 void Knobs::initKnob( int64_t& knob, int64_t value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
+		printf("Setting knob %s to %lu\n",name.c_str(),value);
 		knob = value;
 		int64_knobs[toLower(name)] = &knob;
 	}
@@ -309,6 +314,7 @@ void Knobs::initKnob( int64_t& knob, int64_t value, std::string const& name ) {
 void Knobs::initKnob( int& knob, int value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
+		printf("Setting knob %s to %d\n",name.c_str(),value);
 		int_knobs[toLower(name)] = &knob;
 	}
 }
@@ -316,6 +322,7 @@ void Knobs::initKnob( int& knob, int value, std::string const& name ) {
 void Knobs::initKnob( std::string& knob, const std::string& value, const std::string& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
+		printf("Setting knob %s to %s\n",name.c_str(),value.c_str());
 		string_knobs[toLower(name)] = &knob;
 	}
 }
@@ -323,6 +330,7 @@ void Knobs::initKnob( std::string& knob, const std::string& value, const std::st
 void Knobs::initKnob( bool& knob, bool value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
+		printf("Setting knob %s to %d\n",name.c_str(),value);
 		bool_knobs[toLower(name)] = &knob;
 	}
 }

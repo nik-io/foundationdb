@@ -55,6 +55,8 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 
 	if ( (flags & IAsyncFile::OPEN_EXCLUSIVE) ) ASSERT( flags & IAsyncFile::OPEN_CREATE );
 	if (!(flags & IAsyncFile::OPEN_UNCACHED))
+	    if(FLOW_KNOBS->ENABLE_IO_URING == false)
+		return AsyncFileCached::open(filename, flags, mode);
 	    return AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
 	    // return AsyncFileCached::open(filename, flags, mode);
 
@@ -67,7 +69,10 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 	// EIO.
 	if ((flags & IAsyncFile::OPEN_UNBUFFERED) && !(flags & IAsyncFile::OPEN_NO_AIO) &&
 	    !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO)
-	    f =  AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
+		if(FLOW_KNOBS->ENABLE_IO_URING == false)
+			f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
+		else
+	    		f =  AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
 	    //f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
 	else
 #endif
