@@ -707,7 +707,7 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 
 			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
-			printf("POLLED with rc %d\n",rc);
+			printf("POLLED with rc %d %s\n",rc,strerror(rc));
 
 
 			if (rc<0) {
@@ -716,13 +716,13 @@ private:
                     TraceEvent("IOGetEventsError").GetLastError();
                     throw io_error();
 				}else{
-			        printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
+			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(rc));
 			        continue;
 			    }
 			}
 			if(!cqe){
 			    //Not sure if this is ever executed
-			    printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
+			    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(rc));
 			    continue;
 			}
 			++ctx.countAIOCollect;
