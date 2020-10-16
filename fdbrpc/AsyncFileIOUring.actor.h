@@ -695,11 +695,17 @@ private:
 
 
 			if (rc<0) {
-				printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
-				TraceEvent("IOGetEventsError").GetLastError();
-				throw io_error();
+			    if(rc != -1){
+                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
+                    TraceEvent("IOGetEventsError").GetLastError();
+                    throw io_error();
+				}else{
+			        printf("io_uring_peek_cqe found nothing\n");
+			        continue;
+			    }
 			}
 			if(!res){
+			    //Not sure if this is ever executed
 			    printf("io_uring_peek_cqe found nothing\n");
 			    continue;
 			}
