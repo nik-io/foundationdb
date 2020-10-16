@@ -399,7 +399,19 @@ public:
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
 				ctx.queue.pop();
-				io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				switch(io->opcode){
+				    case UIO_CMD_PREAD:
+				        io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				        break;
+				    case UIO_CMD_WRITE:
+				         io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				        break;
+				    case UIO_CMD_FSYNC:
+				        io_uring_prep_fsync(sqe, fd, 0);
+				    default:
+                        UNSTOPPABLE_ASSERT(false);
+				}
+				
 				io_uring_sqe_set_data(sqe, &io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
