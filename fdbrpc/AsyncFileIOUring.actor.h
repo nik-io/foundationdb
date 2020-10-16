@@ -372,9 +372,10 @@ public:
 	}
 
 	static void launch() {
-	    printf("Launch\n");
+	    printf("Launch on %p\n",&ctx);
 		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
-			ctx.submitMetric = true;
+			printf("@entering launch if\n");
+		    ctx.submitMetric = true;
 			
 			double begin = timer_monotonic();
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
@@ -665,6 +666,7 @@ private:
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
 
 		ctx.queue.push(io);
+		printf("Enqueued op %s on ctx %p\n",op,&ctx);
 	}
 
 	static int openFlags(int flags) {
