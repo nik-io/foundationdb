@@ -372,6 +372,7 @@ public:
 	}
 
 	static void launch() {
+	    printf("Launch\n");
 		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
 			ctx.submitMetric = true;
 			
@@ -680,7 +681,10 @@ private:
 
 	ACTOR static void poll( Reference<IEventFD> ev ) {
 		loop {
-			/* wait(success(ev->read())); */
+		    //Maybe if we do not wait on ev, we do wait_cqe and this blocks
+			//The read may return a future when there is stuff to read.
+			//We can implement the same thing using the peek
+		    /* wait(success(ev->read())); */
 			/* wait(delay(0, TaskPriority::DiskIOComplete)); */
             printf("POLLING\n");
 			struct io_uring_cqe *cqe;
