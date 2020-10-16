@@ -174,7 +174,9 @@ public:
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
 			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
 		}
+		printf("Initing iouring\n");
 		int rc = io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
+		printf("Inited iouring with rc %d. evfd %d\n",rc,ev->getFD());
 		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
