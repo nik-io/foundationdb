@@ -688,18 +688,25 @@ private:
 			/* wait(delay(0, TaskPriority::DiskIOComplete)); */
             printf("POLLING\n");
 			struct io_uring_cqe *cqe;
-			int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
+			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+
+			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
 			printf("POLLED with rc %d\n",rc);
 
-			++ctx.countAIOCollect;
+
 			if (rc<0) {
 				printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
 				TraceEvent("IOGetEventsError").GetLastError();
 				throw io_error();
 			}
+			if(!res){
+			    printf("io_uring_peek_cqe found nothing\n");
+			    continue;
+			}
+			++ctx.countAIOCollect;
 			int res = cqe->res;
 			if (res < 0) {
-				printf("io_uring_wait_cqe returned res: %d %s\n", cqe->res, strerror(cqe->res));
+				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(cqe->res));
 				/* The system call invoked asynchonously failed */
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				continue;
