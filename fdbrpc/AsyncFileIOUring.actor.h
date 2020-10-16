@@ -700,6 +700,7 @@ private:
 			//We can implement the same thing using the peek
 		    /* wait(success(ev->read())); */
 			/* wait(delay(0, TaskPriority::DiskIOComplete)); */
+			wait(delay(0));
             printf("POLLING\n");
 			struct io_uring_cqe *cqe;
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
