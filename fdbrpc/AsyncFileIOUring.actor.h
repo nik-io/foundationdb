@@ -52,7 +52,7 @@ enum {
 	UIO_CMD_FDSYNC = 3
 };
 
-DESCR struct SlowAioSubmit {
+DESCR struct SlowIOUringSubmit {
 	int64_t submitDuration; // ns
 	int64_t truncateDuration; // ns
 	int64_t numTruncates;
@@ -172,7 +172,7 @@ public:
 			ctx.submitMetric.init(LiteralStringRef("AsyncFile.Submit"));
 			ctx.countPreSubmitTruncate.init(LiteralStringRef("AsyncFile.CountPreAIOSubmitTruncate"));
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
-			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowAIOSubmit"));
+			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
 		}
 		int rc = io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
 		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
@@ -383,18 +383,19 @@ public:
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
 			int dequeued_nr = 0;
-			for(int i=0; i<n; i++) {
+			int i=0;
+			for(; i<n; i++) {
+				auto io = ctx.queue.top();
 				toStart[i] = io;
 				io->startTime = now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 				if (nullptr == sqe)
 					break;
-				auto io = ctx.queue.top();
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
 				ctx.queue.pop();
-				io_uring_prep_read(sqe, this->fd,  io->buf, io->nbytes, io->offset);
+				io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				io_uring_sqe_set_data(sqe, &io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
@@ -409,7 +410,7 @@ public:
 					io->owner->truncate(io->owner->nextFileSize);
 				}
 			}
-			dequeue_nr = i;
+			dequeued_nr = i;
 
 			double truncateComplete = timer_monotonic();
 			int rc = io_uring_submit(&ctx.ring);
@@ -454,7 +455,7 @@ public:
 			} else
 				ctx.outstanding += rc;
 			// Any unsubmitted I/Os need to be requeued
-			for(int i=rc; i<dequeue_nr; i++) {
+			for(int i=rc; i<dequeued_nr; i++) {
 				IOUringLogBlockEvent(toStart[i], OpLogEntry::REQUEUE);
 				ctx.queue.push(toStart[i]);
 			}
@@ -549,10 +550,10 @@ private:
 		Int64MetricHandle countPreSubmitTruncate;
 		Int64MetricHandle preSubmitTruncateBytes;
 
-		EventMetricHandle<SlowAioSubmit> slowAioSubmitMetric;
+		EventMetricHandle<SlowIOUringSubmit> slowAioSubmitMetric;
 
 		uint32_t opsIssued;
-		Context() : ring(0), evfd(-1), outstanding(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
+		Context() : ring(), evfd(-1), outstanding(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
 			setIOTimeout(0);
 		}
 
@@ -651,8 +652,8 @@ private:
 
 		IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
-		io->flags |= 1;
-		io->eventfd = ctx.evfd;
+		//io->flags |= 1;
+		//io->eventfd = ctx.evfd;
 		io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
 		//io->prio = - (++ctx.opsIssued);
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
@@ -682,18 +683,18 @@ private:
 
 			++ctx.countAIOCollect;
 			if (rc<0) {
-				printf("io_uring_wait_cqe failed: %d %s\n", rc strerror(rc));
+				printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
 				TraceEvent("IOGetEventsError").GetLastError();
 				throw io_error();
 			}
-			if (cqe->res < 0) {
+			int res = cqe->res;
+			if (res < 0) {
 				printf("io_uring_wait_cqe returned res: %d %s\n", cqe->res, strerror(cqe->res));
 				/* The system call invoked asynchonously failed */
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				continue;
 			}
 			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
-			int res = cqe->res;
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
 			{
@@ -714,13 +715,13 @@ private:
 			}
 
 
-			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, ev[i].result);
+			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
 
 			if(ctx.ioTimeout > 0) {
 				ctx.removeFromRequestList(iob);
 			}
 
-			iob->setResult(cqe->res);
+			iob->setResult(res);
 		}
 	}
 };
@@ -782,7 +783,7 @@ void AsyncFileIOUring::IOUringLogEvent(FILE *logFile, uint32_t id, OpLogEntry::E
 }
 #endif
 
-ACTOR Future<Void> runTestOps(Reference<IAsyncFile> f, int numIterations, int fileSize, bool expectedToSucceed) {
+ACTOR Future<Void> runTestIOUringOps(Reference<IAsyncFile> f, int numIterations, int fileSize, bool expectedToSucceed) {
 	state void *buf = FastAllocator<4096>::allocate(); // we leak this if there is an error, but that shouldn't be a big deal
 	state int iteration = 0;
 
@@ -833,24 +834,24 @@ TEST_CASE("/fdbrpc/AsyncFileIOUring/RequestList") {
 		try {
 			Reference<IAsyncFile> f_ = wait(AsyncFileIOUring::open(
 			    "/tmp/__IOUring_TEST_FILE__",
-			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE, 0666, nullptr));
+			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE, 0666));
 			f = f_;
 			state int fileSize = 2 << 27; // ~100MB
 			wait(f->truncate(fileSize));
 
 			// Test that the request list works as intended with default timeout
 			AsyncFileIOUring::setTimeout(0.0);
-			wait(runTestOps(f, 100, fileSize, true));
+			wait(runTestIOUringOps(f, 100, fileSize, true));
 			ASSERT(!((AsyncFileIOUring*)f.getPtr())->failed);
 
 			// Test that the request list works as intended with long timeout
 			AsyncFileIOUring::setTimeout(20.0);
-			wait(runTestOps(f, 100, fileSize, true));
+			wait(runTestIOUringOps(f, 100, fileSize, true));
 			ASSERT(!((AsyncFileIOUring*)f.getPtr())->failed);
 
 			// Test that requests timeout correctly
 			AsyncFileIOUring::setTimeout(0.0001);
-			wait(runTestOps(f, 10, fileSize, false));
+			wait(runTestIOUringOps(f, 10, fileSize, false));
 			ASSERT(((AsyncFileIOUring*)f.getPtr())->failed);
 		} catch (Error& e) {
 			state Error err = e;

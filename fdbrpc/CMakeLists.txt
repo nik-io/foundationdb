@@ -2,6 +2,7 @@ set(FDBRPC_SRCS
   AsyncFileCached.actor.h
   AsyncFileEIO.actor.h
   AsyncFileKAIO.actor.h
+  AsyncFileIOUring.actor.h
   AsyncFileNonDurable.actor.h
   AsyncFileReadAhead.actor.h
   AsyncFileWinASIO.actor.h
