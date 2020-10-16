@@ -648,8 +648,8 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein data size %lu for op %s\n",int64_t(io->buf),op);
-		ASSERT( int64_t(io->buf) % 4096 == 0);
+		printf("URING enquein data size %lu for op %s. Uncached is %d\n",int64_t(io->buf),op,bool(flags & IAsyncFile::OPEN_UNCACHED));
+		ASSERT( bool(flags & IAsyncFile::OPEN_UNCACHED) && int64_t(io->buf) % 4096 == 0);
 	        ASSERT(io->offset % 4096 == 0);
 		ASSERT( io->nbytes % 4096 == 0 );
 
