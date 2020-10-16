@@ -326,7 +326,6 @@ void Knobs::initKnob( std::string& knob, const std::string& value, const std::st
 void Knobs::initKnob( bool& knob, bool value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
-		printf("Setting knob %s to %d\n",name.c_str(),value);
 		bool_knobs[toLower(name)] = &knob;
 	}
 }
