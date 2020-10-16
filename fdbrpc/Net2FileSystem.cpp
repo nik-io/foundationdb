@@ -102,7 +102,10 @@ Net2FileSystem::Net2FileSystem(double ioTimeout, std::string fileSystemPath)
 	Net2AsyncFile::init();
 #ifdef __linux__
 	if (!FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO)
-		AsyncFileKAIO::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
+		if(!FLOW_KNOBS->ENABLE_IO_URING)
+			AsyncFileKAIO::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
+		else
+			AsyncFileIOUring::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
 
 	if (fileSystemPath.empty()) {
 		checkFileSystem = false;
