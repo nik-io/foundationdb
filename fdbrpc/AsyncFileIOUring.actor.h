@@ -704,7 +704,7 @@ private:
 			        continue;
 			    }
 			}
-			if(!res){
+			if(!cqe){
 			    //Not sure if this is ever executed
 			    printf("io_uring_peek_cqe found nothing\n");
 			    continue;
