@@ -374,7 +374,7 @@ public:
 	static void launch() {
 	    printf("Launch on %p\n",&ctx);
 		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
-			printf("@entering launch if\n");
+			printf("entering launch if\n");
 		    ctx.submitMetric = true;
 			
 			double begin = timer_monotonic();
@@ -382,7 +382,7 @@ public:
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
-
+            printf("%d events in queue\n");
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -476,6 +476,7 @@ public:
 				ctx.queue.push(toStart[i]);
 			}
 		}
+		printf("out of launch\n");
 	}
 
 	bool failed;
