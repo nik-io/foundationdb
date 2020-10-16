@@ -685,6 +685,7 @@ private:
             printf("POLLING\n");
 			struct io_uring_cqe *cqe;
 			int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
+			printf("POLLED with rc %d\n",rc);
 
 			++ctx.countAIOCollect;
 			if (rc<0) {
