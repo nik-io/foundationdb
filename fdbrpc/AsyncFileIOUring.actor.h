@@ -403,15 +403,15 @@ public:
 				    case UIO_CMD_PREAD:
 				        io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
-				    case UIO_CMD_WRITE:
+				    case UIO_CMD_PWRITE:
 				         io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
 				    case UIO_CMD_FSYNC:
-				        io_uring_prep_fsync(sqe, fd, 0);
+				        io_uring_prep_fsync(sqe, io->aio_fildes, 0);
 				    default:
                         UNSTOPPABLE_ASSERT(false);
 				}
-				
+
 				io_uring_sqe_set_data(sqe, &io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
