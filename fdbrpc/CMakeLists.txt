@@ -66,6 +66,8 @@ set(FDBRPC_SRCS_DISABLE_ACTOR_DIAGNOSTICS
 add_flow_target(STATIC_LIBRARY NAME fdbrpc
   SRCS ${FDBRPC_SRCS}
   DISABLE_ACTOR_DIAGNOSTICS ${FDBRPC_SRCS_DISABLE_ACTOR_DIAGNOSTICS})
+
+target_include_directories(fdbrpc PUBLIC /root/liburing/src/include)
 target_include_directories(fdbrpc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libeio)
 target_link_libraries(fdbrpc PRIVATE thirdparty)
 target_link_libraries(fdbrpc PUBLIC flow)
