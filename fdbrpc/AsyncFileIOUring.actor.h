@@ -707,28 +707,28 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 
 			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
-			printf("POLLED with rc %d %s\n",rc,strerror(rc));
+			printf("POLLED with rc %d %s\n",rc,strerror(errno));
 
 
 			if (rc<0) {
 			    if(rc != -11){
-                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
+                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(errno));
                     TraceEvent("IOGetEventsError").GetLastError();
                     throw io_error();
 				}else{
-			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(rc));
+			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(errno));
 			        continue;
 			    }
 			}
 			if(!cqe){
 			    //Not sure if this is ever executed
-			    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(rc));
+			    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(errno));
 			    continue;
 			}
 			++ctx.countAIOCollect;
 			int res = cqe->res;
 			if (res < 0) {
-				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(cqe->res));
+				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
 				/* The system call invoked asynchonously failed */
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				continue;
