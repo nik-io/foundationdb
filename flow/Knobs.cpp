@@ -297,7 +297,6 @@ bool Knobs::setKnob( std::string const& knob, std::string const& value ) {
 
 void Knobs::initKnob( double& knob, double value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
-		printf("Setting knob %s to %f\n",name.c_str(),value);
 		knob = value;
 		double_knobs[toLower(name)] = &knob;
 	}
@@ -305,7 +304,6 @@ void Knobs::initKnob( double& knob, double value, std::string const& name ) {
 
 void Knobs::initKnob( int64_t& knob, int64_t value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
-		printf("Setting knob %s to %lu\n",name.c_str(),value);
 		knob = value;
 		int64_knobs[toLower(name)] = &knob;
 	}
@@ -314,7 +312,6 @@ void Knobs::initKnob( int64_t& knob, int64_t value, std::string const& name ) {
 void Knobs::initKnob( int& knob, int value, std::string const& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
-		printf("Setting knob %s to %d\n",name.c_str(),value);
 		int_knobs[toLower(name)] = &knob;
 	}
 }
@@ -322,7 +319,6 @@ void Knobs::initKnob( int& knob, int value, std::string const& name ) {
 void Knobs::initKnob( std::string& knob, const std::string& value, const std::string& name ) {
 	if (!explicitlySetKnobs.count(toLower(name))) {
 		knob = value;
-		printf("Setting knob %s to %s\n",name.c_str(),value.c_str());
 		string_knobs[toLower(name)] = &knob;
 	}
 }
