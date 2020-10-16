@@ -712,17 +712,17 @@ private:
 
 			if (rc<0) {
 			    if(rc != -11){
-                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(errno));
+                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
                     TraceEvent("IOGetEventsError").GetLastError();
                     throw io_error();
 				}else{
-			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(errno));
+			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
 			        continue;
 			    }
 			}
 			if(!cqe){
 			    //Not sure if this is ever executed
-			    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(errno));
+			    printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
 			    continue;
 			}
 			++ctx.countAIOCollect;
