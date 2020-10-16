@@ -700,13 +700,13 @@ private:
                     TraceEvent("IOGetEventsError").GetLastError();
                     throw io_error();
 				}else{
-			        printf("io_uring_peek_cqe found nothing\n");
+			        printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
 			        continue;
 			    }
 			}
 			if(!cqe){
 			    //Not sure if this is ever executed
-			    printf("io_uring_peek_cqe found nothing\n");
+			    printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
 			    continue;
 			}
 			++ctx.countAIOCollect;
