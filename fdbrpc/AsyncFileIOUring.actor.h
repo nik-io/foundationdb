@@ -695,7 +695,7 @@ private:
 
 
 			if (rc<0) {
-			    if(rc != -1){
+			    if(rc != -11){
                     printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(rc));
                     TraceEvent("IOGetEventsError").GetLastError();
                     throw io_error();
