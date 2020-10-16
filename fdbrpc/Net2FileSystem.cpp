@@ -52,14 +52,14 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 		}
 	}
 #endif
-
+	printf("IOUR is %d. UNCACHED is %d\n",FLOW_KNOBS->ENABLE_IO_URING,flags & IAsyncFile::OPEN_UNCACHED);
 	if ( (flags & IAsyncFile::OPEN_EXCLUSIVE) ) ASSERT( flags & IAsyncFile::OPEN_CREATE );
-	if (!(flags & IAsyncFile::OPEN_UNCACHED))
-	    if(FLOW_KNOBS->ENABLE_IO_URING == false)
-		return AsyncFileCached::open(filename, flags, mode);
-	    return AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
-	    // return AsyncFileCached::open(filename, flags, mode);
-
+	if (!(flags & IAsyncFile::OPEN_UNCACHED)) {
+		if (!FLOW_KNOBS->ENABLE_IO_URING)
+			return AsyncFileCached::open(filename, flags, mode);
+		return AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
+		// return AsyncFileCached::open(filename, flags, mode);
+	}
 	Future<Reference<IAsyncFile>> f;
 #ifdef __linux__
 	// In the vast majority of cases, we wish to use Kernel AIO. However, some systems
@@ -69,10 +69,10 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 	// EIO.
 	if ((flags & IAsyncFile::OPEN_UNBUFFERED) && !(flags & IAsyncFile::OPEN_NO_AIO) &&
 	    !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO)
-		if(FLOW_KNOBS->ENABLE_IO_URING == false)
+		if(!FLOW_KNOBS->ENABLE_IO_URING)
 			f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
 		else
-	    		f =  AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
+			f =  AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
 	    //f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
 	else
 #endif
