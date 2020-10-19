@@ -873,7 +873,7 @@ private:
 			}
 			*/
 			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
-			printf("Prcessing IOBlock %p\n",iob);
+			printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
 			{
