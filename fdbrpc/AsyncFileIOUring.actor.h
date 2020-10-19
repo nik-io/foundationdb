@@ -323,7 +323,7 @@ public:
 	}
 
 	Future<Void> sync() override {
-	    print("Begin logical fsync on %s\n",filename.c_str());
+	    printf("Begin logical fsync on %s\n",filename.c_str());
 		++countFileLogicalWrites;
 		++countLogicalWrites;
 
