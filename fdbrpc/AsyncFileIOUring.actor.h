@@ -384,7 +384,7 @@ public:
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
-			printf("%d events in queue. Outstanding %d max %d  N= \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
+			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -862,12 +862,15 @@ private:
 			}
 			++ctx.countAIOCollect;
 			int res = cqe->res;
+			/*
+			 //Even if the inner call has failed, let's report it to the upper layer
 			if (res < 0) {
 				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
 				/* The system call invoked asynchonously failed */
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				continue;
 			}
+			*/
 			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
