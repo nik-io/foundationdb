@@ -659,6 +659,7 @@ private:
 		}
 
 		void setResult( int r ) {
+		    printf("Setting result for  %p, owner %p : %d\n",this,owner,r);
 			if (r<0) {
 				struct stat fst;
 				fstat( aio_fildes, &fst );
@@ -799,7 +800,7 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein data size %lu for op %s. Uncached is %d\n",int64_t(io->buf),op,bool(flags & IAsyncFile::OPEN_UNCACHED));
+		printf("URING enquein %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->buf),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) || int64_t(io->buf) % 4096 == 0);
 		ASSERT(io->offset % 4096 == 0);
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) ||io->nbytes % 4096 == 0 );
