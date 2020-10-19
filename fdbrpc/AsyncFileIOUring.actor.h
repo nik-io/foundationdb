@@ -121,6 +121,7 @@ public:
 		}
 
 		int fd = ::open( open_filename.c_str(), openFlags(flags), mode );
+		printf("Opening %s\n",filename.c_str());
 		if (fd<0) {
 			Error e = errno==ENOENT ? file_not_found() : io_error();
 			int ecode = errno;  // Save errno in case it is modified before it is used below
@@ -198,7 +199,7 @@ public:
 	Future<int> read(void* data, int length, int64_t offset) override {
 		++countFileLogicalReads;
 		++countLogicalReads;
-		//printf("%p Begin logical read\n", getCurrentCoro());
+		printf("Begin logical read %s\n", filename.c_str());
 
 		if(failed) {
 			return io_timeout();
@@ -221,7 +222,7 @@ public:
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
 		++countLogicalWrites;
-		//printf("%p Begin logical write\n", getCurrentCoro());
+		printf("Begin logical write on %s\n", filename.c_str());
 
 		if(failed) {
 			return io_timeout();
@@ -322,6 +323,7 @@ public:
 	}
 
 	Future<Void> sync() override {
+	    print("Begin logical fsync on %s\n",filename.c_str());
 		++countFileLogicalWrites;
 		++countLogicalWrites;
 
@@ -382,7 +384,7 @@ public:
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
-			printf("%d events in queue\n",n);
+			printf("%d events in queue. Outstanding %d max %d  N= \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -390,7 +392,7 @@ public:
 			int i=0;
 			for(; i<n; i++) {
 				auto io = ctx.queue.top();
-				int rc = 0;
+//				int rc = 0;
 				toStart[i] = io;
 				io->startTime = now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
@@ -445,7 +447,7 @@ public:
 				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
 
 			//Thre might be unpushed items. These have been prepped already, and the corresponding sqe
-			//should be already ready to be pushed next time 
+			//should be already ready to be pushed next time
 
 			if(end-begin > FLOW_KNOBS->SLOW_LOOP_CUTOFF) {
 				ctx.slowAioSubmitMetric->submitDuration = end-truncateComplete;
