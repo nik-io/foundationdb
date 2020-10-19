@@ -647,6 +647,7 @@ private:
 #if IOUring_LOGGING
 			iolog_id = 0;
 #endif
+			printf("New ioblock %p with fd %d\n",this,fd);
 		}
 
 		TaskPriority getTask() const { return static_cast<TaskPriority>((prio>>32)+1); }
