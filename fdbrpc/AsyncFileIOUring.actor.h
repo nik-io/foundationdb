@@ -399,19 +399,20 @@ public:
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
+				//prep does not return error code
 				switch(io->opcode){
 				case UIO_CMD_PREAD:
-				        rc = io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
 				case UIO_CMD_PWRITE:
-					rc = io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+					io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
 				case UIO_CMD_FSYNC:
-				        rc = io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+				     io_uring_prep_fsync(sqe, io->aio_fildes, 0);
 				default:
 					UNSTOPPABLE_ASSERT(false);
 				}
-				if (0 == rc) {
+				if (1) {//prep never fails
 					/* pop only iff pushed at the kernel */
 					ctx.queue.pop();
 				} else {
@@ -442,6 +443,9 @@ public:
 				printf("io_uring_submit submitted %d items\n", rc);
 			else
 				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
+
+			//Thre might be unpushed items. These have been prepped already, and the corresponding sqe
+			//should be already ready to be pushed next time 
 
 			if(end-begin > FLOW_KNOBS->SLOW_LOOP_CUTOFF) {
 				ctx.slowAioSubmitMetric->submitDuration = end-truncateComplete;
