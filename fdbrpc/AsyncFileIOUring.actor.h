@@ -872,6 +872,7 @@ private:
 			}
 			*/
 			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			printf("Prcessing IOBlock %p\n",iob);
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
 			{
@@ -897,7 +898,7 @@ private:
 			if(ctx.ioTimeout > 0) {
 				ctx.removeFromRequestList(iob);
 			}
-
+            printf("Setting result\n");
 			iob->setResult(res);
 		}
 	}
