@@ -355,10 +355,10 @@ public:
 
 		if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
 			flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
-
+            printf("End sync ATOMIC_CREATE\n");
 			return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
 		}
-
+        printf("End sync with\n");
 		return fsync;
 	}
 	Future<int64_t> size() const override { return nextFileSize; }
