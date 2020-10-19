@@ -372,17 +372,17 @@ public:
 	}
 
 	static void launch() {
-	    printf("Launch on %p\n",&ctx);
+		printf("Launch on %p\n",&ctx);
 		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
 			printf("entering launch if\n");
-		    ctx.submitMetric = true;
-			
+			ctx.submitMetric = true;
+
 			double begin = timer_monotonic();
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
-            printf("%d events in queue\n",n);
+			printf("%d events in queue\n",n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -390,6 +390,7 @@ public:
 			int i=0;
 			for(; i<n; i++) {
 				auto io = ctx.queue.top();
+				int rc = 0;
 				toStart[i] = io;
 				io->startTime = now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
@@ -398,18 +399,23 @@ public:
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
-				ctx.queue.pop();
 				switch(io->opcode){
-				    case UIO_CMD_PREAD:
-				        io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				case UIO_CMD_PREAD:
+				        rc = io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
-				    case UIO_CMD_PWRITE:
-				         io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				case UIO_CMD_PWRITE:
+					rc = io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
-				    case UIO_CMD_FSYNC:
-				        io_uring_prep_fsync(sqe, io->aio_fildes, 0);
-				    default:
-                        UNSTOPPABLE_ASSERT(false);
+				case UIO_CMD_FSYNC:
+				        rc = io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+				default:
+					UNSTOPPABLE_ASSERT(false);
+				}
+				if (0 == rc) {
+					/* pop only iff pushed at the kernel */
+					ctx.queue.pop();
+				} else {
+					/* TODO: consider breaking */
 				}
 
 				io_uring_sqe_set_data(sqe, &io);
@@ -432,6 +438,10 @@ public:
 			int rc = io_uring_submit(&ctx.ring);
 			/* int rc = io_submit( ctx.iocx, n, (linux_iocb**)toStart ); */
 			double end = timer_monotonic();
+			if (0 <= rc)
+				printf("io_uring_submit submitted %d items\n", rc);
+			else
+				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
 
 			if(end-begin > FLOW_KNOBS->SLOW_LOOP_CUTOFF) {
 				ctx.slowAioSubmitMetric->submitDuration = end-truncateComplete;
@@ -455,7 +465,7 @@ public:
 			++ctx.countAIOSubmit;
 
 			double elapsed = timer_monotonic() - begin;
-			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;	
+			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
 
 			//TraceEvent("Launched").detail("N", rc).detail("Queued", ctx.queue.size()).detail("Elapsed", elapsed).detail("Outstanding", ctx.outstanding+rc);
 			//printf("launched: %d/%d in %f us (%d outstanding; lowest prio %d)\n", rc, ctx.queue.size(), elapsed*1e6, ctx.outstanding + rc, toStart[n-1]->getTask());
@@ -470,11 +480,6 @@ public:
 				}
 			} else
 				ctx.outstanding += rc;
-			// Any unsubmitted I/Os need to be requeued
-			for(int i=rc; i<dequeued_nr; i++) {
-				IOUringLogBlockEvent(toStart[i], OpLogEntry::REQUEUE);
-				ctx.queue.push(toStart[i]);
-			}
 		}
 		printf("out of launch\n");
 	}
@@ -696,32 +701,33 @@ private:
 
 	ACTOR static void poll( Reference<IEventFD> ev ) {
 		loop {
-		    //Maybe if we do not wait on ev, we do wait_cqe and this blocks
+			//Maybe if we do not wait on ev, we do wait_cqe and this blocks
 			//The read may return a future when there is stuff to read.
 			//We can implement the same thing using the peek
-		    /* wait(success(ev->read())); */
+			/* wait(success(ev->read())); */
 			/* wait(delay(0, TaskPriority::DiskIOComplete)); */
-			wait(delay(0));
-            printf("POLLING\n");
+
+			wait(delay(0, TaskPriority::DiskIOComplete));
+			printf("POLLING\n");
 			struct io_uring_cqe *cqe;
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 
 			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
 			printf("POLLED with rc %d %s\n",rc,strerror(-rc));
 
-
-			if (rc<0) {
-			    if(rc != -11){
-                    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-                    TraceEvent("IOGetEventsError").GetLastError();
-                    throw io_error();
-				}else{
-			        printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
-			        continue;
+			if (rc < 0) {
+			    if(rc != -EAGAIN){
+				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+				    TraceEvent("IOGetEventsError").GetLastError();
+				    throw io_error();
+			    }else{
+				    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
+				    continue;
 			    }
 			}
+
 			if(!cqe){
-			    //Not sure if this is ever executed
+				//Not sure if this is ever executed
 			    printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
 			    continue;
 			}
