@@ -866,7 +866,7 @@ private:
 			 //Even if the inner call has failed, let's report it to the upper layer
 			if (res < 0) {
 				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
-				/* The system call invoked asynchonously failed */
+				// The system call invoked asynchonously failed 
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				continue;
 			}
