@@ -815,7 +815,7 @@ private:
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
 
 		ctx.queue.push(io);
-		printf("Enqueued op %s on ctx %p\n",op,&ctx);
+		printf("Fiel %p Enqueued op %s on ctx %p. Io %p\n",this,op,&ctx,io);
 	}
 
 	static int openFlags(int flags) {
