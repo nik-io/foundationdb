@@ -52,7 +52,7 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 		}
 	}
 #endif
-	printf("IOUR is %d. UNCACHED is %d\n",FLOW_KNOBS->ENABLE_IO_URING,flags & IAsyncFile::OPEN_UNCACHED);
+	printf("Opening %s IOUR is %d. UNCACHED is %d\n",filename.c_str(),FLOW_KNOBS->ENABLE_IO_URING,flags & IAsyncFile::OPEN_UNCACHED);
 	if ( (flags & IAsyncFile::OPEN_EXCLUSIVE) ) ASSERT( flags & IAsyncFile::OPEN_CREATE );
 	if (!(flags & IAsyncFile::OPEN_UNCACHED)) {
 		if (!FLOW_KNOBS->ENABLE_IO_URING)
