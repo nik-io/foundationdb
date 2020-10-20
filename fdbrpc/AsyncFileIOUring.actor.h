@@ -373,7 +373,7 @@ public:
 #endif
 	}
 
-	static void launch1() {
+	static void launch() {
 		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
         //FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
@@ -495,7 +495,7 @@ public:
 		printf("out of launch\n");
 	}
 
-	static void launch() {
+	static void launch1() {
 		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
 		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
 			printf("entering launch if\n");
@@ -660,7 +660,7 @@ private:
 		}
 
 		void setResult( int r ) {
-		    printf("Setting result for  %p, owner %p : %d\n",this,owner,r);
+		    printf("Setting result for  %p, owner %p : %d\n",this,owner->getPtr(),r);
 			if (r<0) {
 				struct stat fst;
 				fstat( aio_fildes, &fst );
@@ -801,7 +801,7 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->buf),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->buf),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) || int64_t(io->buf) % 4096 == 0);
 		ASSERT(io->offset % 4096 == 0);
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) ||io->nbytes % 4096 == 0 );

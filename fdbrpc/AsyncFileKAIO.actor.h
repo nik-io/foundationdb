@@ -208,6 +208,8 @@ public:
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
 		++countLogicalWrites;
+		printf("KAIO Begin logical write on %s\n", filename.c_str());
+
 		//printf("%p Begin logical write\n", getCurrentCoro());
 
 		if(failed) {
