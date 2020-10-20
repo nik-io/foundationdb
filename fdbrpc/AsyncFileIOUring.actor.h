@@ -424,7 +424,7 @@ public:
 				} else {
 					/* TODO: consider breaking */
 				}
-
+                printf("Setting data %p\n",io);
 				io_uring_sqe_set_data(sqe, io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
@@ -815,7 +815,7 @@ private:
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
 
 		ctx.queue.push(io);
-		printf("Fiel %p Enqueued op %s on ctx %p. Io %p\n",this,op,&ctx,io);
+		printf("File %p Enqueued op %s on ctx %p. Io %p\n",this,op,&ctx,io);
 	}
 
 	static int openFlags(int flags) {
@@ -864,15 +864,16 @@ private:
 			}
 			++ctx.countAIOCollect;
 			int res = cqe->res;
-			/*
-			 //Even if the inner call has failed, let's report it to the upper layer
+
+
 			if (res < 0) {
+			 //Even if the inner call has failed, let's report it to the upper layer
 				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
 				// The system call invoked asynchonously failed
-				io_uring_cqe_seen(&ctx.ring, cqe);
-				continue;
+				//io_uring_cqe_seen(&ctx.ring, cqe);
+				//continue;
 			}
-			*/
+
 			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 			printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
 			io_uring_cqe_seen(&ctx.ring, cqe);
