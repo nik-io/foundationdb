@@ -1662,6 +1662,7 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 				processIDUid = deterministicRandom()->randomUniqueID();
 				BinaryWriter wr(IncludeVersion(ProtocolVersion::withProcessIDFile()));
 				wr << processIDUid;
+				printf("Writing %s with length %d\n",lockFilePath.c_str(), wr.getLength());
 				wait(lockFile.get()->write(wr.getData(), wr.getLength(), 0));
 				wait(lockFile.get()->sync());
 			}
