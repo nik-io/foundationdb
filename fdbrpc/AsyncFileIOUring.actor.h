@@ -121,7 +121,7 @@ public:
 		}
 
 		int fd = ::open( open_filename.c_str(), openFlags(flags), mode );
-		printf("Opening %s\n",filename.c_str());
+		printf("IOUR Opening %s\n",filename.c_str());
 		if (fd<0) {
 			Error e = errno==ENOENT ? file_not_found() : io_error();
 			int ecode = errno;  // Save errno in case it is modified before it is used below

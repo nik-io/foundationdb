@@ -1655,9 +1655,10 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 		try {
 			state std::string lockFilePath = joinPath(folder, "processId");
 			state ErrorOr<Reference<IAsyncFile>> lockFile = wait(errorOr(IAsyncFileSystem::filesystem(g_network)->open(lockFilePath, IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_LOCK, 0600)));
-
+			printf("Worker. Opened 1\n");
 			if (lockFile.isError() && lockFile.getError().code() == error_code_file_not_found && !fileExists(lockFilePath)) {
 				Reference<IAsyncFile> _lockFile = wait(IAsyncFileSystem::filesystem()->open(lockFilePath, IAsyncFile::OPEN_ATOMIC_WRITE_AND_CREATE | IAsyncFile::OPEN_CREATE | IAsyncFile::OPEN_LOCK | IAsyncFile::OPEN_READWRITE, 0600));
+				printf("Worker. Opened 2\n");
 				lockFile = _lockFile;
 				processIDUid = deterministicRandom()->randomUniqueID();
 				BinaryWriter wr(IncludeVersion(ProtocolVersion::withProcessIDFile()));
