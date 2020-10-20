@@ -369,6 +369,7 @@ struct AFCPage : public EvictablePage, public FastAllocated<AFCPage> {
 	}
 
 	Future<Void> write( void const* data, int length, int offset ) {
+		printf("Cached writing size %d\n",length);
 		// If zero-copy reads are in progress, allow whole page writes to a new page buffer so the effects
 		// are not seen by the prior readers who still hold zeroCopyRead pointers
 		bool fullPage = offset == 0 && length == pageCache->pageSize;
