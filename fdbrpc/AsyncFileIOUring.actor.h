@@ -410,6 +410,7 @@ public:
 				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				    break;
 				case UIO_CMD_PWRITE:
+				    printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
 					io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
 				case UIO_CMD_FSYNC:

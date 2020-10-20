@@ -220,7 +220,7 @@ public:
 		io->buf = (void*)data;
 		io->nbytes = length;
 		io->offset = offset;
-
+		printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
 		nextFileSize = std::max( nextFileSize, offset+length );
 
 		enqueue(io, "write", this);
