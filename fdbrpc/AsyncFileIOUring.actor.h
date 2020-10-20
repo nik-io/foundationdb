@@ -660,7 +660,7 @@ private:
 		}
 
 		void setResult( int r ) {
-		    printf("Setting result for  %p, owner %p : %d\n",this,owner->getPtr(),r);
+		    printf("Setting result for  %p, owner %p : %d\n",this,owner.getPtr(),r);
 			if (r<0) {
 				struct stat fst;
 				fstat( aio_fildes, &fst );
