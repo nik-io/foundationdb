@@ -234,6 +234,7 @@ public:
 		io->offset = offset;
 
 		nextFileSize = std::max( nextFileSize, offset+length );
+        printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
 
 		enqueue(io, "write", this);
 		Future<int> result = io->result.getFuture();
