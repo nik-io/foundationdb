@@ -375,15 +375,18 @@ public:
 
 	static void launch1() {
 		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
-		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
-			printf("entering launch if\n");
+        //FOr now, don-t worry about min submit
+		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
+		if (ctx.queue.size() + ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING) {			printf("entering launch if\n");
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
-			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
+			//we only push new stuff from the ctx. Outstanding are alrady in the ring
+			//(A workaround could be possibly cqe-see the outstanding and re-enqueue them, but I guess it costs too much
+			int n = ctx.queue.size();
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -405,12 +408,13 @@ public:
 				switch(io->opcode){
 				case UIO_CMD_PREAD:
 				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
-				        break;
+				    break;
 				case UIO_CMD_PWRITE:
 					io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				        break;
 				case UIO_CMD_FSYNC:
 				     io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+				     break;
 				default:
 					UNSTOPPABLE_ASSERT(false);
 				}
@@ -421,7 +425,7 @@ public:
 					/* TODO: consider breaking */
 				}
 
-				io_uring_sqe_set_data(sqe, &io);
+				io_uring_sqe_set_data(sqe, io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
 				}
@@ -493,9 +497,7 @@ public:
 
 	static void launch() {
 		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
-		//FOr now, don-t worry about min submit
-		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
-		if (ctx.queue.size() + ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING) {
+		if (ctx.queue.size() && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT) {
 			printf("entering launch if\n");
 			ctx.submitMetric = true;
 
@@ -503,9 +505,7 @@ public:
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
-			//we only push new stuff from the ctx. Outstanding are alrady in the ring
-			//(A workaround could be possibly cqe-see the outstanding and re-enqueue them, but I guess it costs too much
-			int n = ctx.queue.size();
+			int n = std::min<size_t>(FLOW_KNOBS->MAX_OUTSTANDING - ctx.outstanding, ctx.queue.size());
 			printf("%d events in queue. Outstanding %d max %d  N= \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
