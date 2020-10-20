@@ -803,7 +803,7 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->buf),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->nbytes),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) || int64_t(io->buf) % 4096 == 0);
 		ASSERT(io->offset % 4096 == 0);
 		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) ||io->nbytes % 4096 == 0 );
