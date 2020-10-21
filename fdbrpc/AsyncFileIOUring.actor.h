@@ -197,6 +197,12 @@ public:
 	virtual void addref() { ReferenceCounted<AsyncFileIOUring>::addref(); }
 	virtual void delref() { ReferenceCounted<AsyncFileIOUring>::delref(); }
 
+	ACTOR Future<Void> mysuccess( Future<int> of ) {
+				int t = wait( of );
+				printf("SUCCESS %d\n",t);
+						return Void();
+		}
+
 	Future<int> read(void* data, int length, int64_t offset) override {
 		++countFileLogicalReads;
 		++countLogicalReads;
@@ -244,9 +250,13 @@ public:
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
-		Future<Void> r= success(result);
+		return mysuccess(result);
+		//int t = wait( result );
+		//printf("Write has finished with ret value %d\n",t);
+		//return Void();
+		//Future<Void> r= success(result);
 		// printf("write finished with code %d\n",result.get()); result.get() crashes here
-		return r;
+		//return r;
 	}
 // TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
 #ifndef FALLOC_FL_ZERO_RANGE
@@ -666,7 +676,10 @@ private:
 		TaskPriority getTask() const { return static_cast<TaskPriority>((prio>>32)+1); }
 
 		ACTOR static void deliver( Promise<int> result, bool failed, int r, TaskPriority task ) {
-			wait( delay(0, task) );
+			printf("Waiting in deliver %d\n",0);
+			//wait( delay(0, task) );
+			//wait(delay(0));
+			printf("Waited in deliver \n");
 			if (failed) result.sendError(io_timeout());
 			else if (r < 0) result.sendError(io_error());
 			else result.send(r);
@@ -899,7 +912,8 @@ private:
 				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 			}
 
-			ctx.outstanding --;
+			//Don't need this anymore. We just remove outstanding ops once they are properly submitted in iou 
+			//ctx.outstanding --;
 
 			if(ctx.ioTimeout > 0) {
 				double currentTime = now();
