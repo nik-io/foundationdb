@@ -1860,6 +1860,7 @@ ACTOR Future<Void> fdbd(
 		ASSERT(false);  // None of these actors should terminate normally
 		throw internal_error();
 	} catch (Error& e) {
+		printf("catching err in quorum\n");
 		// Make sure actors are cancelled before recoveredDiskFiles is destructed.
 		// Otherwise, these actors may get a broken promise error.
 		for (auto f : actors) f.cancel();
