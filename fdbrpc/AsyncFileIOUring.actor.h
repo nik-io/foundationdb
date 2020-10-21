@@ -380,7 +380,9 @@ public:
 		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
         //FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
-		if (ctx.queue.size() + ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING) {			printf("entering launch if\n");
+		int to_push=ctx.queue.size() + ctx.outstanding;
+		if (to_push>0 && to_push< FLOW_KNOBS->MAX_OUTSTANDING) {
+		    printf("entering launch if\n");
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -390,6 +392,8 @@ public:
 			//we only push new stuff from the ctx. Outstanding are alrady in the ring
 			//(A workaround could be possibly cqe-see the outstanding and re-enqueue them, but I guess it costs too much
 			int n = ctx.queue.size();
+			if(n + ctx.outstanding > FLOW_KNOBS->MAX_OUTSTANDING)
+			    n=FLOW_KNOBS->MAX_OUTSTANDING-ctx.outstanding;
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -444,10 +448,8 @@ public:
 				}
 			}
 			dequeued_nr = i;
-
 			double truncateComplete = timer_monotonic();
 			int rc = io_uring_submit(&ctx.ring);
-			/* int rc = io_submit( ctx.iocx, n, (linux_iocb**)toStart ); */
 			double end = timer_monotonic();
 			if (0 <= rc)
 				printf("io_uring_submit submitted %d items\n", rc);
@@ -493,7 +495,8 @@ public:
 					rc = 1;
 				}
 			} else{
-				ctx.outstanding += rc;
+			    //We want that outstanding represents the number of events NOT pushed to the ring
+				ctx.outstanding += (dequeued - rc);
 				}
 		}
 		printf("out of launch\n");
