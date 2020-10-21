@@ -121,7 +121,6 @@ public:
 		}
 
 		int fd = ::open( open_filename.c_str(), openFlags(flags), mode );
-		printf("IOUR Opening %s\n",filename.c_str());
 		if (fd<0) {
 			Error e = errno==ENOENT ? file_not_found() : io_error();
 			int ecode = errno;  // Save errno in case it is modified before it is used below
@@ -130,6 +129,7 @@ public:
 			  .detailf("OSFlags", "%x", openFlags(flags)).detailf("Mode", "0%o", mode).GetLastError();
 			if(ecode == EINVAL)
 				ev.detail("Description", "Invalid argument - Does the target filesystem support IOUring?");
+			printf("IOUR failed to open file %s err=%s\n", open_filename.c_str(), strerror(errno));
 			return e;
 		} else {
 			TraceEvent("AsyncFileIOUringOpen")
@@ -138,6 +138,7 @@ public:
 				.detail("Mode", mode)
 				.detail("Fd", fd);
 		}
+		printf("IOUR Opened %s fd=%u\n", open_filename.c_str(), fd);
 
 		Reference<AsyncFileIOUring> r(new AsyncFileIOUring( fd, flags, filename ));
 
@@ -177,7 +178,7 @@ public:
 		}
 		printf("Initing iouring\n");
 		int rc = io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
-		printf("Inited iouring with rc %d. evfd %d\n",rc,ev->getFD());
+		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), ctx.queue.size());
 		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
@@ -235,17 +236,17 @@ public:
 		io->offset = offset;
 
 		nextFileSize = std::max( nextFileSize, offset+length );
-        printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
+		printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
 
 		enqueue(io, "write", this);
 		Future<int> result = io->result.getFuture();
-		
+
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
 		Future<Void> r= success(result);
-		        printf("write finished with code %d\n",result.get());
-					return r;
+		// printf("write finished with code %d\n",result.get()); result.get() crashes here
+		return r;
 	}
 // TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
 #ifndef FALLOC_FL_ZERO_RANGE
@@ -418,7 +419,7 @@ public:
 				    break;
 				    case UIO_CMD_PWRITE:{
                                    printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
-                                   struct iovec *iov=(struct iovec*) malloc(sizeof(struct iovec));
+                                   struct iovec *iov= &io->iovec;
                                    iov->iov_base=io->buf;
                                    iov->iov_len=io->nbytes;
                                    io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
@@ -647,7 +648,7 @@ private:
 		int64_t offset;
 		IOBlock *prev;
 		IOBlock *next;
-
+		struct iovec iovec;
 		double startTime;
 #if IOUring_LOGGING
 		int32_t iolog_id;
@@ -827,7 +828,7 @@ private:
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
 
 		ctx.queue.push(io);
-		printf("File %p Enqueued op %s on ctx %p. Io %p\n",this,op,&ctx,io);
+		printf("File %p Enqueued op %s on ctx %p. Io %p queue size=%lu\n",this,op,&ctx,io, ctx.queue.size());
 	}
 
 	static int openFlags(int flags) {
@@ -868,6 +869,7 @@ private:
 				    continue;
 			    }
 			}
+			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
 
 			if(!cqe){
 				//Not sure if this is ever executed
@@ -879,7 +881,7 @@ private:
 
 
 			if (res < 0) {
-			 //Even if the inner call has failed, let's report it to the upper layer
+				//Even if the inner call has failed, let's report it to the upper layer
 				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
 				// The system call invoked asynchonously failed
 				//io_uring_cqe_seen(&ctx.ring, cqe);
