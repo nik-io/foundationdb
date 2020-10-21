@@ -211,8 +211,7 @@ public:
 		if(failed) {
 			return io_timeout();
 		}
-		//void* m=aligned_alloc(4096,sizeof(IOBlock));
-		
+
 		IOBlock *io = new IOBlock(UIO_CMD_PREAD, fd);
 		io->buf = data;
 		io->nbytes = length;
@@ -429,7 +428,7 @@ public:
                                    struct iovec *iov= &io->iovec;
                                    iov->iov_base=io->buf;
                                    iov->iov_len=io->nbytes;
-                                    io_uring_prep_read(sqe, io->aio_fildes,  iov, 1, io->offset);
+                                    io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 				    break;
 						   }
 				    case UIO_CMD_PWRITE:{
