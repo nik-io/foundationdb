@@ -355,9 +355,9 @@ public:
 
 		Future<Void> fsync = throwErrorIfFailed(Reference<AsyncFileIOUring>::addRef(this), AsyncFileEIO::async_fdatasync(fd));  // Don't close the file until the asynchronous thing is done
 		// Alas, AIO f(data)sync doesn't seem to actually be implemented by the kernel
-		/*IOBlock *io = new IOBlock(UIO_CMD_FDSYNC, fd);
-		  submit(io, "write");
-		  fsync=success(io->result.getFuture());*/
+		IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
+		  enqueue(io, "fsync",this);
+		  fsync=success(io->result.getFuture());
 
 		/* TODO */
 		/* struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring); */
@@ -369,7 +369,7 @@ public:
 
 		if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
 			flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
-            printf("End sync ATOMIC_CREATE\n");
+			printf("IOU End sync ATOMIC_CREATE\n");
 			return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
 		}
         printf("End sync with\n");
@@ -388,7 +388,7 @@ public:
 	}
 
 	static void launch() {
-		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
+		//printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
         //FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size() + ctx.outstanding;
@@ -515,7 +515,6 @@ public:
 				ctx.outstanding += (dequeued_nr - rc);
 				}
 		}
-		printf("out of launch\n");
 	}
 
 	static void launch1() {
@@ -828,10 +827,11 @@ private:
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
 		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->nbytes),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
-		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
-		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
-		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
-
+		if(io->opcode !=UIO_CMD_FSYNC){
+			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
+		}
 		IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
 		//io->flags |= 1;
@@ -865,12 +865,12 @@ private:
 			/* wait(delay(0, TaskPriority::DiskIOComplete)); */
 
 			wait(delay(0, TaskPriority::DiskIOComplete));
-			printf("POLLING\n");
+			//printf("POLLING\n");
 			struct io_uring_cqe *cqe;
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 
 			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
-			printf("POLLED with rc %d %s\n",rc,strerror(-rc));
+			//printf("POLLED with rc %d %s\n",rc,strerror(-rc));
 
 			if (rc < 0) {
 			    if(rc != -EAGAIN){
@@ -878,7 +878,7 @@ private:
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
 			    }else{
-				    printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
+				    //printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
 				    continue;
 			    }
 			}

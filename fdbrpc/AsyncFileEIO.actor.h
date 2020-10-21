@@ -180,17 +180,18 @@ public:
 	}
 	ACTOR static Future<Void> waitAndAtomicRename( Future<Void> fsync, std::string part_filename, std::string final_filename ) {
 		// First wait for the data in the part file to be durable
+		printf("WAR: bf wait\n");
 		wait(fsync);
-
+		printf("WAR: af wait\n");
 		// rename() is atomic
 		if (rename( part_filename.c_str(), final_filename.c_str() )) {
 			TraceEvent("AsyncFileEIORenameError").detail("Filename", final_filename).GetLastError();
 			throw io_error();
 		}
-
+		printf("WAR: bf wait 2\n");
 		// fsync the parent directory to make it durable as well
 		wait( async_fsync_parent(final_filename) );
-
+		printf("WAR: af wait2\n");
 		return Void();
 	}
 

@@ -1657,6 +1657,7 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 			state ErrorOr<Reference<IAsyncFile>> lockFile = wait(errorOr(IAsyncFileSystem::filesystem(g_network)->open(lockFilePath, IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_LOCK, 0600)));
 			printf("Worker. Opened 1\n");
 			if (lockFile.isError() && lockFile.getError().code() == error_code_file_not_found && !fileExists(lockFilePath)) {
+				printf("Worker. if\n");
 				Reference<IAsyncFile> _lockFile = wait(IAsyncFileSystem::filesystem()->open(lockFilePath, IAsyncFile::OPEN_ATOMIC_WRITE_AND_CREATE | IAsyncFile::OPEN_CREATE | IAsyncFile::OPEN_LOCK | IAsyncFile::OPEN_READWRITE, 0600));
 				printf("Worker. Opened 2\n");
 				lockFile = _lockFile;
@@ -1668,6 +1669,7 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 				wait(lockFile.get()->sync());
 			}
 			else {
+				printf("Worker else\n");
 				if (lockFile.isError()) throw lockFile.getError(); // If we've failed to open the file, throw an exception
 
 				int64_t fileSize = wait(lockFile.get()->size());
