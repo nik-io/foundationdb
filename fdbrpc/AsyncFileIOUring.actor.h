@@ -204,7 +204,8 @@ public:
 		if(failed) {
 			return io_timeout();
 		}
-
+		//void* m=aligned_alloc(4096,sizeof(IOBlock));
+		
 		IOBlock *io = new IOBlock(UIO_CMD_PREAD, fd);
 		io->buf = data;
 		io->nbytes = length;
@@ -234,7 +235,7 @@ public:
 		io->offset = offset;
 
 		nextFileSize = std::max( nextFileSize, offset+length );
-        printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
+        printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
 
 		enqueue(io, "write", this);
 		Future<int> result = io->result.getFuture();
@@ -242,8 +243,9 @@ public:
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
-
-		return success(result);
+		Future<Void> r= success(result);
+		        printf("write finished with code %d\n",result.get());
+					return r;
 	}
 // TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
 #ifndef FALLOC_FL_ZERO_RANGE
@@ -804,9 +806,9 @@ private:
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
 		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->nbytes),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
-		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) || int64_t(io->buf) % 4096 == 0);
-		ASSERT(io->offset % 4096 == 0);
-		ASSERT( !bool(flags & IAsyncFile::OPEN_UNCACHED) ||io->nbytes % 4096 == 0 );
+		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+		ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
 
 		IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
@@ -903,7 +905,7 @@ private:
 			if(ctx.ioTimeout > 0) {
 				ctx.removeFromRequestList(iob);
 			}
-            printf("Setting result\n");
+			printf("Setting result %d\n",res);
 			iob->setResult(res);
 		}
 	}
