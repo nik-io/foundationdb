@@ -416,7 +416,6 @@ public:
 				case UIO_CMD_PREAD:
 				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				    break;
-				case UIO_CMD_PWRITE:
 				    case UIO_CMD_PWRITE:{
                                    printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
                                    struct iovec *iov=(struct iovec*) malloc(sizeof(struct iovec));
@@ -502,7 +501,7 @@ public:
 				}
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
-				ctx.outstanding += (dequeued - rc);
+				ctx.outstanding += (dequeued_nr - rc);
 				}
 		}
 		printf("out of launch\n");
