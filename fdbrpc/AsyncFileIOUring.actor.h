@@ -424,9 +424,14 @@ public:
 
 				//prep does not return error code
 				switch(io->opcode){
-				case UIO_CMD_PREAD:
-				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+				case UIO_CMD_PREAD:{
+				  printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+                                   struct iovec *iov= &io->iovec;
+                                   iov->iov_base=io->buf;
+                                   iov->iov_len=io->nbytes;
+                                    io_uring_prep_read(sqe, io->aio_fildes,  iov, 1, io->offset);
 				    break;
+						   }
 				    case UIO_CMD_PWRITE:{
                                    printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
                                    struct iovec *iov= &io->iovec;

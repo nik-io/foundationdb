@@ -1674,16 +1674,21 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 
 				int64_t fileSize = wait(lockFile.get()->size());
 				state Key fileData = makeString(fileSize);
+				printf("Reading\n");
 				wait(success(lockFile.get()->read(mutateString(fileData), fileSize, 0)));
+				printf("read\n");
 				try {
 					processIDUid = BinaryReader::fromStringRef<UID>(fileData, IncludeVersion());
+					printf("ret\n");
 					return processIDUid;
 				} catch (Error& e) {
 					if(!g_network->isSimulated()) {
 						throw;
 					}
+					printf("deleting \n");
 					lockFile = ErrorOr<Reference<IAsyncFile>>();
 					wait(IAsyncFileSystem::filesystem()->deleteFile(lockFilePath, true));
+					printf("deleted\n");
 				}
 			}
 		}
@@ -1830,9 +1835,9 @@ ACTOR Future<Void> fdbd(
 		}
 
 		state UID processIDUid = wait(createAndLockProcessIdFile(dataFolder));
+		printf("created and locked\n");
 		localities.set(LocalityData::keyProcessId, processIDUid.toString());
 		// Only one process can execute on a dataFolder from this point onwards
-
 		std::string fitnessFilePath = joinPath(dataFolder, "fitness");
 		Reference<AsyncVar<Optional<ClusterControllerFullInterface>>> cc(new AsyncVar<Optional<ClusterControllerFullInterface>>);
 		Reference<AsyncVar<Optional<ClusterInterface>>> ci(new AsyncVar<Optional<ClusterInterface>>);
@@ -1850,7 +1855,7 @@ ACTOR Future<Void> fdbd(
 		actors.push_back( reportErrors(extractClusterInterface( cc, ci ), "ExtractClusterInterface") );
 		actors.push_back( reportErrorsExcept(workerServer(connFile, cc, localities, asyncPriorityInfo, processClass, dataFolder, memoryLimit, metricsConnFile, metricsPrefix, recoveredDiskFiles, memoryProfileThreshold, coordFolder, whitelistBinPaths, dbInfo), "WorkerServer", UID(), &normalWorkerErrors()) );
 		state Future<Void> firstConnect = reportErrors( printOnFirstConnected(ci), "ClusterFirstConnectedError" );
-
+		printf("waiting quorum\n");
 		wait( quorum(actors,1) );
 		ASSERT(false);  // None of these actors should terminate normally
 		throw internal_error();
