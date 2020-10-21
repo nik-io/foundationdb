@@ -417,9 +417,15 @@ public:
 				    io_uring_prep_read(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 				    break;
 				case UIO_CMD_PWRITE:
-				    printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
-					io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
-				        break;
+				    case UIO_CMD_PWRITE:{
+                                   printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+                                   struct iovec *iov=(struct iovec*) malloc(sizeof(struct iovec));
+                                   iov->iov_base=io->buf;
+                                   iov->iov_len=io->nbytes;
+                                   io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+                                   //io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+                                   break;
+                                                   }
 				case UIO_CMD_FSYNC:
 				     io_uring_prep_fsync(sqe, io->aio_fildes, 0);
 				     break;
