@@ -344,7 +344,7 @@ public:
 
 		IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
 		enqueue(io, "fsync",this);
-		Future<Void> fsync=mysuccess(io->result.getFuture());
+		Future<Void> fsync=success(io->result.getFuture());
 
 #if IOUring_LOGGING
 		fsync = map(fsync, [=](Void r) mutable { IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::COMPLETE); return r; });
@@ -762,7 +762,7 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
 			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-#if IOUringTRACE
+#if IOUring_TRACING
 				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
 #endif
 				    TraceEvent("IOGetEventsError").GetLastError();
