@@ -1857,6 +1857,7 @@ ACTOR Future<Void> fdbd(
 		state Future<Void> firstConnect = reportErrors( printOnFirstConnected(ci), "ClusterFirstConnectedError" );
 		printf("waiting quorum\n");
 		wait( quorum(actors,1) );
+		printf("waited quorum\n"); //should not get here
 		ASSERT(false);  // None of these actors should terminate normally
 		throw internal_error();
 	} catch (Error& e) {

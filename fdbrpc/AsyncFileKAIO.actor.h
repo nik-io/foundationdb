@@ -621,7 +621,7 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileKAIO* owner ) {
-		printf("KAIO enquein data size %lu for op %s\n",int64_t(io->buf),op);
+		printf("KAIO enquein data size %lu for op %s on file %s\n",int64_t(io->buf),op, owner->filename.c_str());
                 ASSERT( int64_t(io->buf) % 4096 == 0);
                 ASSERT(io->offset % 4096 == 0);
                 ASSERT( io->nbytes % 4096 == 0 );
