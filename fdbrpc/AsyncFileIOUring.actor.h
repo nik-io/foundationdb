@@ -130,7 +130,9 @@ public:
 			  .detailf("OSFlags", "%x", openFlags(flags)).detailf("Mode", "0%o", mode).GetLastError();
 			if(ecode == EINVAL)
 				ev.detail("Description", "Invalid argument - Does the target filesystem support IOUring?");
+#if IOUring_TRACING
 			printf("IOUR failed to open file %s err=%s\n", open_filename.c_str(), strerror(errno));
+#endif
 			return e;
 		} else {
 			TraceEvent("AsyncFileIOUringOpen")

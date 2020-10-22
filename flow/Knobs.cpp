@@ -241,7 +241,7 @@ static std::string toLower( std::string const& name ) {
 
 bool Knobs::setKnob( std::string const& knob, std::string const& value ) {
 	explicitlySetKnobs.insert(toLower(knob));
-	printf("Explicitly setting knob %s to %s\n",knob.c_str(),value.c_str());
+	//printf("Explicitly setting knob %s to %s\n",knob.c_str(),value.c_str());
 	if (double_knobs.count(knob)) {
 		double v;
 		int n=0;
