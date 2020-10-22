@@ -341,12 +341,6 @@ public:
 		return Void();
 	}
 
- 	ACTOR static void  waitOnIOUring(Promise<int>p, struct io_uring *ring, struct io_uring_cqe **cqe) { 
-		wait(delay(0, TaskPriority::DiskIOComplete));
-		int  rc = io_uring_wait_cqe(ring,cqe);
-		p.send(rc);
-	}
-
 	Future<Void> sync() override {
 	    printf("Begin logical fsync on %s\n",filename.c_str());
 		++countFileLogicalWrites;
@@ -518,6 +512,7 @@ public:
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
 				ctx.outstanding += (dequeued_nr - rc);
+				ctx.submitted += rc;
 				}
 		}
 	}
@@ -610,6 +605,7 @@ private:
 		/* io_context_t iocx; */
 		int evfd;
 		int outstanding;
+		int submitted;
 		double ioStallBegin;
 		bool fallocateSupported;
 		bool fallocateZeroSupported;
@@ -628,7 +624,7 @@ private:
 		EventMetricHandle<SlowIOUringSubmit> slowAioSubmitMetric;
 
 		uint32_t opsIssued;
-		Context() : ring(), evfd(-1), outstanding(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
+		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
 			setIOTimeout(0);
 		}
 
@@ -763,17 +759,18 @@ private:
 	// }
 
 	ACTOR static void poll( Reference<IEventFD> ev ) {
-		state io_uring_cqe* cqe;
+		// state TaskPriority taskID = g_network->getCurrentTask();
 		loop {
-			Promise<int> p;
-			printf("Polling\n");
-			waitOnIOUring(p,&ctx.ring,&cqe);
-			int rc = wait(p.getFuture());
-			//struct io_uring_cqe* cqe=(struct io_uring_cqe*)cq;
-			//printf("POLLED with rc %d %s\n",rc,strerror(-rc));
-
+			// Promise<int> p;
+			// printf("Polling\n");
+			// TODO:
+			// if there are submited IOs in the ring then priority should be DiskIOComplete, otherwise Zero
+			TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
+			wait(delay(0, prio));
+			struct io_uring_cqe* cqe;
+			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
-			    if(rc != -EAGAIN){
+			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
 				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
@@ -813,8 +810,7 @@ private:
 				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 			}
 
-			//Don't need this anymore. We just remove outstanding ops once they are properly submitted in iou
-			//ctx.outstanding --;
+			ctx.submitted --;
 
 			if(ctx.ioTimeout > 0) {
 				double currentTime = now();
