@@ -147,7 +147,6 @@ class AsyncFileCached : public IAsyncFile, public ReferenceCounted<AsyncFileCach
 
 public:
 	static Future<Reference<IAsyncFile>> open( std::string filename, int flags, int mode ) {
-		printf("Cached opening %s\n",filename.c_str());
 		//TraceEvent("AsyncFileCachedOpen").detail("Filename", filename);
 		if ( openFiles.find(filename) == openFiles.end() ) {
 			auto f = open_impl( filename, flags, mode );

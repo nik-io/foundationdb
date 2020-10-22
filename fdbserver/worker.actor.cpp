@@ -1825,7 +1825,6 @@ ACTOR Future<Void> fdbd(
 		}
 
 		state UID processIDUid = wait(createAndLockProcessIdFile(dataFolder));
-		printf("created and locked\n");
 		localities.set(LocalityData::keyProcessId, processIDUid.toString());
 		// Only one process can execute on a dataFolder from this point onwards
 		std::string fitnessFilePath = joinPath(dataFolder, "fitness");
@@ -1845,13 +1844,10 @@ ACTOR Future<Void> fdbd(
 		actors.push_back( reportErrors(extractClusterInterface( cc, ci ), "ExtractClusterInterface") );
 		actors.push_back( reportErrorsExcept(workerServer(connFile, cc, localities, asyncPriorityInfo, processClass, dataFolder, memoryLimit, metricsConnFile, metricsPrefix, recoveredDiskFiles, memoryProfileThreshold, coordFolder, whitelistBinPaths, dbInfo), "WorkerServer", UID(), &normalWorkerErrors()) );
 		state Future<Void> firstConnect = reportErrors( printOnFirstConnected(ci), "ClusterFirstConnectedError" );
-		printf("waiting quorum\n");
 		wait( quorum(actors,1) );
-		printf("waited quorum\n"); //should not get here
 		ASSERT(false);  // None of these actors should terminate normally
 		throw internal_error();
 	} catch (Error& e) {
-		printf("catching err in quorum\n");
 		// Make sure actors are cancelled before recoveredDiskFiles is destructed.
 		// Otherwise, these actors may get a broken promise error.
 		for (auto f : actors) f.cancel();

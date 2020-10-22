@@ -225,6 +225,7 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	init( HEALTH_MONITOR_CONNECTION_MAX_CLOSED,                  5 );
 
         init( ENABLE_IO_URING,					  false);
+	init( USE_IO_URING_FOR_CACHED,				  false);
 }
 // clang-format on
 

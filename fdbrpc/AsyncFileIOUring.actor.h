@@ -204,8 +204,9 @@ public:
 	Future<int> read(void* data, int length, int64_t offset) override {
 		++countFileLogicalReads;
 		++countLogicalReads;
+#if IOUring_TRACING
 		printf("Begin logical read %s\n", filename.c_str());
-
+#endif
 		if(failed) {
 			return io_timeout();
 		}
@@ -227,8 +228,9 @@ public:
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
 		++countLogicalWrites;
+#if IOUring_TRACING
 		printf("Begin logical write on %s\n", filename.c_str());
-
+#endif
 		if(failed) {
 			return io_timeout();
 		}
@@ -239,8 +241,9 @@ public:
 		io->offset = offset;
 
 		nextFileSize = std::max( nextFileSize, offset+length );
+#if IOUring_TRACING		
 		printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
-
+#endif
 		enqueue(io, "write", this);
 		Future<int> result = io->result.getFuture();
 
@@ -328,33 +331,35 @@ public:
 	}
 
 	Future<Void> sync() override {
+#if IOUring_TRACING
 	    printf("Begin logical fsync on %s\n",filename.c_str());
-		++countFileLogicalWrites;
-		++countLogicalWrites;
+#endif
+	    ++countFileLogicalWrites;
+	    ++countLogicalWrites;
 
-		if(failed) {
-			return io_timeout();
-		}
+	    if(failed) {
+		    return io_timeout();
+	    }
 
 #if IOUring_LOGGING
-		uint32_t id = OpLogEntry::nextID();
+	    uint32_t id = OpLogEntry::nextID();
 #endif
 
-		IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::START);
+	    IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::START);
 
-		IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
-		enqueue(io, "fsync",this);
-		Future<Void> fsync=success(io->result.getFuture());
+	    IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
+	    enqueue(io, "fsync",this);
+	    Future<Void> fsync=success(io->result.getFuture());
 
 #if IOUring_LOGGING
-		fsync = map(fsync, [=](Void r) mutable { IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::COMPLETE); return r; });
+	    fsync = map(fsync, [=](Void r) mutable { IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::COMPLETE); return r; });
 #endif
 
-		if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
-			flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
-			return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
-		}
-		return fsync;
+	    if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
+		    flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
+		    return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
+	    }
+	    return fsync;
 	}
 	Future<int64_t> size() const override { return nextFileSize; }
 	int64_t debugFD() const override { return fd; }
@@ -540,7 +545,6 @@ private:
 #if IOUring_LOGGING
 			iolog_id = 0;
 #endif
-			printf("New ioblock %p with fd %d\n",this,fd);
 		}
 
 		TaskPriority getTask() const { return static_cast<TaskPriority>((prio>>32)+1); }
@@ -762,16 +766,14 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
 			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-#if IOUring_TRACING
-				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-#endif
+				    //printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
 			    }else{
 				    continue;
 			    }
 			}
-			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
+			//printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
 
 			if(!cqe){
 				//Not sure if this is ever executed
@@ -780,8 +782,7 @@ private:
 			++ctx.countAIOCollect;
 			int res = cqe->res;
 
-
-#if IOUring_TRACING
+/*
 			if (res < 0) {
 			    // The system call invoked asynchonously failed
 				//Even if the inner call has failed, let's report it to the upper layer
@@ -789,12 +790,10 @@ private:
 				//io_uring_cqe_seen(&ctx.ring, cqe);
 				//continue;
 			}
-#endif
+*/
 			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
-			assert(nullptr != iob);
-#if IOUring_TRACING
-			printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
-#endif
+			ASSERT(nullptr != iob);
+			//printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
 			{

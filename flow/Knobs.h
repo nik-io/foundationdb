@@ -245,6 +245,7 @@ public:
 
         //IOUring
 	bool ENABLE_IO_URING;
+	bool USE_IO_URING_FOR_CACHED;
 	FlowKnobs();
 	void initialize(bool randomize = false, bool isSimulated = false);
 };

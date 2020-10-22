@@ -1896,9 +1896,7 @@ int main(int argc, char* argv[]) {
 				                      opts.whitelistBinPaths));
 				// actors.push_back( recurring( []{}, .001 ) );  // for ASIO latency measurement
 				f = stopAfter(waitForAll(actors));
-				printf("waited\n");
 				g_network->run();
-				printf("running network\n");
 			}
 		} else if (role == MultiTester) {
 			setupRunLoopProfiler();
