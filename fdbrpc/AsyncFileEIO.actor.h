@@ -186,10 +186,8 @@ public:
 			TraceEvent("AsyncFileEIORenameError").detail("Filename", final_filename).GetLastError();
 			throw io_error();
 		}
-		printf("WAR: bf sync wait 2\n");
 		// fsync the parent directory to make it durable as well
 		wait( async_fsync_parent(final_filename) );
-		printf("WAR: af sync wait2\n");
 		return Void();
 	}
 
