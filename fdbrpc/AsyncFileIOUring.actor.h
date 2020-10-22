@@ -203,10 +203,10 @@ public:
 						return Void();
 		}
 
-		ACTOR Future<Void> myReadsuccess( Future<int> of ) {
+		ACTOR Future<int> myReadsuccess( Future<int> of ) {
 				int t = wait( of );
-				printf("SUCCESS %d\n",t);
-						return f;
+				printf("SUCCESS %d\n",of.get());
+						return of;
 		}
 
 	Future<int> read(void* data, int length, int64_t offset) override {
