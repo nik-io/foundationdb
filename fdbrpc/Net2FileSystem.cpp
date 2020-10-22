@@ -52,7 +52,7 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 		}
 	}
 #endif
-	printf("Opening %s IOUR is %d. UNCACHED is %d. Unbuffered is %d\n",filename.c_str(),FLOW_KNOBS->ENABLE_IO_URING,flags & IAsyncFile::OPEN_UNCACHED,flags & IAsyncFile::OPEN_UNBUFFERED);
+	printf("Opening %s IOUR is %d. UNCACHED is %d. Unbuffered is %d\n",filename.c_str(),FLOW_KNOBS->ENABLE_IO_URING,!!(flags & IAsyncFile::OPEN_UNCACHED), !!(flags & IAsyncFile::OPEN_UNBUFFERED));
 	if ( (flags & IAsyncFile::OPEN_EXCLUSIVE) ) ASSERT( flags & IAsyncFile::OPEN_CREATE );
 	if (!(flags & IAsyncFile::OPEN_UNCACHED)) {
 		//If the file is cached, let it be cached. Underneath it will use the proper kaio/iouring impl for direct uncached access

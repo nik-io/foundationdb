@@ -163,7 +163,7 @@ public:
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
 			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowAIOSubmit"));
 		}
-		
+
 		int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
@@ -225,7 +225,7 @@ public:
 
 		enqueue(io, "write", this);
 		Future<int> result = io->result.getFuture();
-		
+
 #if KAIO_LOGGING
 		//result = map(result, [=](int r) mutable { KAIOLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
