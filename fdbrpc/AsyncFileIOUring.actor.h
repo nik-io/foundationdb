@@ -341,6 +341,10 @@ public:
 		return Void();
 	}
 
+ 	ACTOR static Future<int> waitOnIOUring(struct io_uring *const ring, struct io_uring_cqe **cqe) {
+		return io_uring_wait_cqe(ring, cqe);
+	}
+
 	Future<Void> sync() override {
 	    printf("Begin logical fsync on %s\n",filename.c_str());
 		++countFileLogicalWrites;
@@ -356,17 +360,9 @@ public:
 
 		IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::START);
 
-
-
-		// Future<Void> fsync = throwErrorIfFailed(Reference<AsyncFileIOUring>::addRef(this), AsyncFileEIO::async_fdatasync(fd));  // Don't close the file until the asynchronous thing is done
-		// Alas, AIO f(data)sync doesn't seem to actually be implemented by the kernel
 		IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
 		enqueue(io, "fsync",this);
 		Future<Void> fsync=mysuccess(io->result.getFuture());
-
-		/* TODO */
-		/* struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring); */
-		/* io_uring_prep_fsync(sqe, this->fd, ORING_FSYNC_DATASYNC); */
 
 #if IOUring_LOGGING
 		fsync = map(fsync, [=](Void r) mutable { IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::COMPLETE); return r; });
@@ -377,7 +373,7 @@ public:
 			printf("IOU End sync ATOMIC_CREATE\n");
 			return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
 		}
-        printf("End sync with\n");
+		printf("End sync with\n");
 		return fsync;
 	}
 	Future<int64_t> size() const override { return nextFileSize; }
@@ -394,7 +390,7 @@ public:
 
 	static void launch() {
 		//printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
-        //FOr now, don-t worry about min submit
+		//FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size() + ctx.outstanding;
 		if (to_push>0 && to_push< FLOW_KNOBS->MAX_OUTSTANDING) {
@@ -564,18 +560,27 @@ private:
 
 		TaskPriority getTask() const { return static_cast<TaskPriority>((prio>>32)+1); }
 
-		ACTOR static void deliver( Promise<int> result, bool failed, int r, TaskPriority task ) {
-			printf("Waiting in deliver %d\n",0);
+		// ACTOR static void deliver( Promise<int> result, bool failed, int r, TaskPriority task ) {
+		// 	printf("Waiting in deliver %d\n",0);
+		// 	//wait( delay(0, task) );
+		// 	//wait(delay(0));
+		// 	printf("Waited in deliver \n");
+		// 	if (failed) result.sendError(io_timeout());
+		// 	else if (r < 0) result.sendError(io_error());
+		// 	else result.send(r);
+		// }
+		static void deliver( Promise<int> result, bool failed, int r, TaskPriority task ) {
+			//printf("Waiting in deliver %d\n",0);
 			//wait( delay(0, task) );
 			//wait(delay(0));
-			printf("Waited in deliver \n");
+			//printf("Waited in deliver \n");
 			if (failed) result.sendError(io_timeout());
 			else if (r < 0) result.sendError(io_error());
 			else result.send(r);
 		}
 
 		void setResult( int r ) {
-		    printf("Setting result for  %p, owner %p (%s) : %d\n",this,owner.getPtr(),owner->filename.c_str(),r);
+			printf("Setting result for  %p, owner %p : %d\n",this,owner.getPtr(),r);
 			if (r<0) {
 				struct stat fst;
 				fstat( aio_fildes, &fst );
@@ -747,18 +752,20 @@ private:
 		return oflags;
 	}
 
+	// Future<int64_t> wait_cqe() {
+	// 	Promise<int64_t> p;
+	// 	io_uring_wait_cqe(&ctx.ring, &cqe);
+	// 	sd.async_read_some( boost::asio::mutable_buffers_1( &fdVal, sizeof(fdVal) ),
+	// 			boost::bind( &EventFD::handle_read, p, &fdVal, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred ) );
+	// 	return p.getFuture();
+	// }
+
 	ACTOR static void poll( Reference<IEventFD> ev ) {
 		loop {
-			//Maybe if we do not wait on ev, we do wait_cqe and this blocks
-			//The read may return a future when there is stuff to read.
-			//We can implement the same thing using the peek
-
-			wait(delay(0, TaskPriority::DiskIOComplete));
 			//printf("POLLING\n");
 			struct io_uring_cqe *cqe;
-			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
-
-			//int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
+			Future<int64_t> wait_cqe =  waitOnIOUring(p, &ctx.ring, &cqe);
+			int rc = wait(wait_cqe);
 			//printf("POLLED with rc %d %s\n",rc,strerror(-rc));
 
 			if (rc < 0) {
@@ -790,7 +797,8 @@ private:
 				//continue;
 			}
 
-			IOBlock* iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			assert(nullptr != iob);
 			printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
