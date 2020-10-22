@@ -1655,41 +1655,30 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 		try {
 			state std::string lockFilePath = joinPath(folder, "processId");
 			state ErrorOr<Reference<IAsyncFile>> lockFile = wait(errorOr(IAsyncFileSystem::filesystem(g_network)->open(lockFilePath, IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_LOCK, 0600)));
-			printf("Worker. Opened 1\n");
 			if (lockFile.isError() && lockFile.getError().code() == error_code_file_not_found && !fileExists(lockFilePath)) {
-				printf("Worker. if\n");
 				Reference<IAsyncFile> _lockFile = wait(IAsyncFileSystem::filesystem()->open(lockFilePath, IAsyncFile::OPEN_ATOMIC_WRITE_AND_CREATE | IAsyncFile::OPEN_CREATE | IAsyncFile::OPEN_LOCK | IAsyncFile::OPEN_READWRITE, 0600));
 				lockFile = _lockFile;
-				printf("Worker. Opened 2 fd=%ld \n", lockFile.get()->debugFD());
 				processIDUid = deterministicRandom()->randomUniqueID();
 				BinaryWriter wr(IncludeVersion(ProtocolVersion::withProcessIDFile()));
 				wr << processIDUid;
-				printf("Writing %s with length %d\n",lockFilePath.c_str(), wr.getLength());
 				wait(lockFile.get()->write(wr.getData(), wr.getLength(), 0));
-				printf("Syncing %s\n",lockFilePath.c_str());
 				wait(lockFile.get()->sync());
 			}
 			else {
-				printf("Worker else\n");
 				if (lockFile.isError()) throw lockFile.getError(); // If we've failed to open the file, throw an exception
 
 				int64_t fileSize = wait(lockFile.get()->size());
 				state Key fileData = makeString(fileSize);
-				printf("Reading\n");
 				wait(success(lockFile.get()->read(mutateString(fileData), fileSize, 0)));
-				printf("read\n");
 				try {
 					processIDUid = BinaryReader::fromStringRef<UID>(fileData, IncludeVersion());
-					printf("ret\n");
 					return processIDUid;
 				} catch (Error& e) {
 					if(!g_network->isSimulated()) {
 						throw;
 					}
-					printf("deleting \n");
 					lockFile = ErrorOr<Reference<IAsyncFile>>();
 					wait(IAsyncFileSystem::filesystem()->deleteFile(lockFilePath, true));
-					printf("deleted\n");
 				}
 			}
 		}

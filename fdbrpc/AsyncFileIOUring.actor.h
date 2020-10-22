@@ -44,6 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
+#define IOUring_TRACING 0
 
 enum {
 	UIO_CMD_PREAD = 0,
@@ -138,7 +139,9 @@ public:
 				.detail("Mode", mode)
 				.detail("Fd", fd);
 		}
+#if IOUring_TRACING
 		printf("IOUR Opened %s fd=%u\n", open_filename.c_str(), fd);
+#endif
 
 		Reference<AsyncFileIOUring> r(new AsyncFileIOUring( fd, flags, filename ));
 
@@ -176,9 +179,10 @@ public:
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
 			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
 		}
-		printf("Initing iouring\n");
 		int rc = io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
+#if IOUring_TRACING
 		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), ctx.queue.size());
+#endif
 		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
@@ -196,18 +200,6 @@ public:
 
 	virtual void addref() { ReferenceCounted<AsyncFileIOUring>::addref(); }
 	virtual void delref() { ReferenceCounted<AsyncFileIOUring>::delref(); }
-
-	ACTOR Future<Void> mysuccess( Future<int> of ) {
-				int t = wait( of );
-				printf("SUCCESS %d\n",t);
-						return Void();
-		}
-
-		/*ACTOR Future<int> myReadsuccess( Future<int> of ) {
-				int t = wait( of );
-				printf("SUCCESS %d\n",of.get());
-						return of;
-		}*/
 
 	Future<int> read(void* data, int length, int64_t offset) override {
 		++countFileLogicalReads;
@@ -255,13 +247,7 @@ public:
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
-		return mysuccess(result);
-		//int t = wait( result );
-		//printf("Write has finished with ret value %d\n",t);
-		//return Void();
-		//Future<Void> r= success(result);
-		// printf("write finished with code %d\n",result.get()); result.get() crashes here
-		//return r;
+        return success(result);
 	}
 // TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
 #ifndef FALLOC_FL_ZERO_RANGE
@@ -366,10 +352,8 @@ public:
 
 		if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
 			flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
-			printf("IOU End sync ATOMIC_CREATE\n");
 			return AsyncFileEIO::waitAndAtomicRename( fsync, filename+".part", filename );
 		}
-		printf("End sync with\n");
 		return fsync;
 	}
 	Future<int64_t> size() const override { return nextFileSize; }
@@ -390,7 +374,6 @@ public:
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size() + ctx.outstanding;
 		if (to_push>0 && to_push< FLOW_KNOBS->MAX_OUTSTANDING) {
-		    printf("entering launch if\n");
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -402,7 +385,9 @@ public:
 			int n = ctx.queue.size();
 			if(n + ctx.outstanding > FLOW_KNOBS->MAX_OUTSTANDING)
 			    n=FLOW_KNOBS->MAX_OUTSTANDING-ctx.outstanding;
+#if IOUring_LOGGING
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
+#endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
@@ -422,7 +407,9 @@ public:
 				switch(io->opcode){
 				case UIO_CMD_PREAD:
 				{
+#if IOUring_LOGGING
 					printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+#endif
 					struct iovec *iov= &io->iovec;
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
@@ -431,7 +418,9 @@ public:
 				}
 				case UIO_CMD_PWRITE:
 				{
+#if IOUring_LOGGING
 					printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+#endif
 					struct iovec *iov= &io->iovec;
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
@@ -446,8 +435,6 @@ public:
 					UNSTOPPABLE_ASSERT(false);
 				}
 				ctx.queue.pop();
-
-				printf("Setting data %p\n",io);
 				io_uring_sqe_set_data(sqe, io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
@@ -466,11 +453,12 @@ public:
 			double truncateComplete = timer_monotonic();
 			int rc = io_uring_submit(&ctx.ring);
 			double end = timer_monotonic();
+#if IOUring_LOGGING
 			if (0 <= rc)
 				printf("io_uring_submit submitted %d items\n", rc);
 			else
 				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
-
+#endif
 			//Thre might be unpushed items. These have been prepped already, and the corresponding sqe
 			//should be already ready to be pushed next time
 
@@ -577,7 +565,6 @@ private:
 		}
 
 		void setResult( int r ) {
-			printf("Setting result for  %p, owner %p : %d\n",this,owner.getPtr(),r);
 			if (r<0) {
 				struct stat fst;
 				fstat( aio_fildes, &fst );
@@ -719,9 +706,11 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
+#if IOUring_LOGGING
+	    printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
 			this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
-		if(io->opcode !=UIO_CMD_FSYNC){
+#endif
+	    if(io->opcode !=UIO_CMD_FSYNC){
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
@@ -735,7 +724,9 @@ private:
 		io->owner = Reference<AsyncFileIOUring>::addRef(owner);
 
 		ctx.queue.push(io);
+#if IOUringTRACE
 		printf("File %p Enqueued op %s on ctx %p. Io %p queue size=%lu\n",this,op,&ctx,io, ctx.queue.size());
+#endif
 	}
 
 	static int openFlags(int flags) {
@@ -771,11 +762,12 @@ private:
 			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
 			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+#if IOUringTRACE
 				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+#endif
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
 			    }else{
-				    //printf("io_uring_peek_cqe found nothing with rc %d %s\n",rc,strerror(-rc));
 				    continue;
 			    }
 			}
@@ -783,24 +775,26 @@ private:
 
 			if(!cqe){
 				//Not sure if this is ever executed
-			    printf("io_uring_peek_cqe found nothing with rc %d\n",rc);
 			    continue;
 			}
 			++ctx.countAIOCollect;
 			int res = cqe->res;
 
 
+#if IOUring_TRACING
 			if (res < 0) {
+			    // The system call invoked asynchonously failed
 				//Even if the inner call has failed, let's report it to the upper layer
 				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
-				// The system call invoked asynchonously failed
 				//io_uring_cqe_seen(&ctx.ring, cqe);
 				//continue;
 			}
-
+#endif
 			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 			assert(nullptr != iob);
+#if IOUring_TRACING
 			printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
+#endif
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			cqe=nullptr;
 			{
@@ -826,7 +820,6 @@ private:
 			if(ctx.ioTimeout > 0) {
 				ctx.removeFromRequestList(iob);
 			}
-			printf("Setting result %d\n",res);
 			iob->setResult(res);
 		}
 	}
