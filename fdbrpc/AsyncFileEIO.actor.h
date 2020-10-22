@@ -340,7 +340,7 @@ private:
 		state TaskPriority taskID = g_network->getCurrentTask();
 		state Promise<Void> p;
 		state eio_req* r = start_fsync( fd, p, sync_metadata );
-		
+
 		try { wait( p.getFuture() ); } catch (...) { g_network->setCurrentTask( taskID ); eio_cancel(r); throw; }
 		try {
 			// Report any errors from prior write() or truncate() calls

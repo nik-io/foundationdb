@@ -352,11 +352,11 @@ public:
 
 
 
-		Future<Void> fsync = throwErrorIfFailed(Reference<AsyncFileIOUring>::addRef(this), AsyncFileEIO::async_fdatasync(fd));  // Don't close the file until the asynchronous thing is done
+		// Future<Void> fsync = throwErrorIfFailed(Reference<AsyncFileIOUring>::addRef(this), AsyncFileEIO::async_fdatasync(fd));  // Don't close the file until the asynchronous thing is done
 		// Alas, AIO f(data)sync doesn't seem to actually be implemented by the kernel
 		IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
-		  enqueue(io, "fsync",this);
-		  fsync=success(io->result.getFuture());
+		enqueue(io, "fsync",this);
+		Future<Void> fsync=success(io->result.getFuture());
 
 		/* TODO */
 		/* struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring); */
@@ -412,7 +412,6 @@ public:
 			int i=0;
 			for(; i<n; i++) {
 				auto io = ctx.queue.top();
-//				int rc = 0;
 				toStart[i] = io;
 				io->startTime = now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
@@ -423,36 +422,34 @@ public:
 
 				//prep does not return error code
 				switch(io->opcode){
-				case UIO_CMD_PREAD:{
-				  printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
-                                   struct iovec *iov= &io->iovec;
-                                   iov->iov_base=io->buf;
-                                   iov->iov_len=io->nbytes;
-                                    io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-				    break;
-						   }
-				    case UIO_CMD_PWRITE:{
-                                   printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
-                                   struct iovec *iov= &io->iovec;
-                                   iov->iov_base=io->buf;
-                                   iov->iov_len=io->nbytes;
-                                   io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
-                                   //io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
-                                   break;
-                                                   }
+				case UIO_CMD_PREAD:
+				{
+					printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+					struct iovec *iov= &io->iovec;
+					iov->iov_base=io->buf;
+					iov->iov_len=io->nbytes;
+					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+					break;
+				}
+				case UIO_CMD_PWRITE:
+				{
+					printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+					struct iovec *iov= &io->iovec;
+					iov->iov_base=io->buf;
+					iov->iov_len=io->nbytes;
+					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+					//io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
+					break;
+				}
 				case UIO_CMD_FSYNC:
-				     io_uring_prep_fsync(sqe, io->aio_fildes, 0);
-				     break;
+					io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+					break;
 				default:
 					UNSTOPPABLE_ASSERT(false);
 				}
-				if (1) {//prep never fails
-					/* pop only iff pushed at the kernel */
-					ctx.queue.pop();
-				} else {
-					/* TODO: consider breaking */
-				}
-                printf("Setting data %p\n",io);
+				ctx.queue.pop();
+
+				printf("Setting data %p\n",io);
 				io_uring_sqe_set_data(sqe, io);
 				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
@@ -830,7 +827,8 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-		printf("URING enquein file %p (io %p) data size %lu for op %s on file %s. Uncached is %d\n",this,io,int64_t(io->nbytes),op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
+			this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 		if(io->opcode !=UIO_CMD_FSYNC){
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
@@ -916,7 +914,7 @@ private:
 				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 			}
 
-			//Don't need this anymore. We just remove outstanding ops once they are properly submitted in iou 
+			//Don't need this anymore. We just remove outstanding ops once they are properly submitted in iou
 			//ctx.outstanding --;
 
 			if(ctx.ioTimeout > 0) {
