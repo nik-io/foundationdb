@@ -203,11 +203,11 @@ public:
 						return Void();
 		}
 
-		ACTOR Future<int> myReadsuccess( Future<int> of ) {
+		/*ACTOR Future<int> myReadsuccess( Future<int> of ) {
 				int t = wait( of );
 				printf("SUCCESS %d\n",of.get());
 						return of;
-		}
+		}*/
 
 	Future<int> read(void* data, int length, int64_t offset) override {
 		++countFileLogicalReads;
@@ -341,8 +341,10 @@ public:
 		return Void();
 	}
 
- 	ACTOR static Future<int> waitOnIOUring(struct io_uring *const ring, struct io_uring_cqe **cqe) {
-		return io_uring_wait_cqe(ring, cqe);
+ 	ACTOR static void  waitOnIOUring(Promise<int>p, struct io_uring *ring, struct io_uring_cqe **cqe) { 
+		wait(delay(0, TaskPriority::DiskIOComplete));
+		int  rc = io_uring_wait_cqe(ring,cqe);
+		p.send(rc);
 	}
 
 	Future<Void> sync() override {
@@ -761,11 +763,13 @@ private:
 	// }
 
 	ACTOR static void poll( Reference<IEventFD> ev ) {
+		state io_uring_cqe* cqe;
 		loop {
-			//printf("POLLING\n");
-			struct io_uring_cqe *cqe;
-			Future<int64_t> wait_cqe =  waitOnIOUring(p, &ctx.ring, &cqe);
-			int rc = wait(wait_cqe);
+			Promise<int> p;
+			printf("Polling\n");
+			waitOnIOUring(p,&ctx.ring,&cqe);
+			int rc = wait(p.getFuture());
+			//struct io_uring_cqe* cqe=(struct io_uring_cqe*)cq;
 			//printf("POLLED with rc %d %s\n",rc,strerror(-rc));
 
 			if (rc < 0) {
