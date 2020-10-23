@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 
 enum {
 	UIO_CMD_PREAD = 0,
@@ -376,11 +376,16 @@ public:
 	}
 
 	static void launch() {
-		//printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
+#if IOUring_TRACING
+		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
+#endif
 		//FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size() + ctx.outstanding;
-		if (to_push>0 && to_push< FLOW_KNOBS->MAX_OUTSTANDING) {
+		if (to_push>0) {
+			//Do not have more than a max of ops in the ring
+			if (to_push > FLOW_KNOBS->MAX_OUTSTANDING)
+				to_push=FLOW_KNOBS->MAX_OUTSTANDING;
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -388,10 +393,13 @@ public:
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			//we only push new stuff from the ctx. Outstanding are alrady in the ring
-			//(A workaround could be possibly cqe-see the outstanding and re-enqueue them, but I guess it costs too much
-			int n = ctx.queue.size();
-			if(n + ctx.outstanding > FLOW_KNOBS->MAX_OUTSTANDING)
-			    n=FLOW_KNOBS->MAX_OUTSTANDING-ctx.outstanding;
+			//(A workaround could be possibly cqe-see t
+			//he outstanding and re-enqueue them, but I guess it costs too much
+			
+			//These are the new ones we have to put in the ring
+			//outstanding should always be < max, so n should benon-negative
+			int n = to_push - ctx.outstanding;
+			assert(n>=0);
 #if IOUring_LOGGING
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
@@ -460,7 +468,7 @@ public:
 			double truncateComplete = timer_monotonic();
 			int rc = io_uring_submit(&ctx.ring);
 			double end = timer_monotonic();
-#if IOUring_LOGGING
+#if IOUring_TRACING
 			if (0 <= rc)
 				printf("io_uring_submit submitted %d items\n", rc);
 			else
@@ -506,7 +514,7 @@ public:
 				}
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
-				ctx.outstanding += (dequeued_nr - rc);
+				ctx.outstanding +=(dequeued_nr - rc);
 				ctx.submitted += rc;
 				}
 		}
@@ -756,27 +764,30 @@ private:
 	// }
 
 	ACTOR static void poll( Reference<IEventFD> ev ) {
-		// state TaskPriority taskID = g_network->getCurrentTask();
+		// state TaskaPriority taskID = g_network->getCurrentTask();
+		state int rc;
+		state io_uring_cqe* cqe;
 		loop {
 			// Promise<int> p;
-			// printf("Polling\n");
+			if(IOUring_TRACING)			printf("Polling with outstanding %d\n",ctx.outstanding);
 			// TODO:
 			// if there are submited IOs in the ring then priority should be DiskIOComplete, otherwise Zero
-			TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
-			wait(delay(0, prio));
-			struct io_uring_cqe* cqe;
-			int rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+	//		TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
+			//wait(delay(0,TaskPriority::DiskIOComplete ));
+			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
 			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-				    //printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
-			    }else{
+			    }else{	
+				    wait(delay(1,TaskPriority::DiskIOComplete));
 				    continue;
 			    }
 			}
-			//printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
+			wait(delay(0,TaskPriority::DiskIOComplete ));
 
+			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
 			if(!cqe){
 				//Not sure if this is ever executed
 			    continue;
