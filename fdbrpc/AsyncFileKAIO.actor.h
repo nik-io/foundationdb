@@ -208,7 +208,6 @@ public:
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
 		++countLogicalWrites;
-		printf("KAIO Begin logical write on %s of size %d\n", filename.c_str(),length);
 
 		//printf("%p Begin logical write\n", getCurrentCoro());
 
@@ -220,7 +219,6 @@ public:
 		io->buf = (void*)data;
 		io->nbytes = length;
 		io->offset = offset;
-		printf("Writing %d bytes at offset %d\n",io->nbytes, io->offset);
 		nextFileSize = std::max( nextFileSize, offset+length );
 
 		enqueue(io, "write", this);
@@ -621,7 +619,6 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileKAIO* owner ) {
-		printf("KAIO enquein data size %lu for op %s on file %s\n",int64_t(io->buf),op, owner->filename.c_str());
                 ASSERT( int64_t(io->buf) % 4096 == 0);
                 ASSERT(io->offset % 4096 == 0);
                 ASSERT( io->nbytes % 4096 == 0 );
