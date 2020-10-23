@@ -769,11 +769,18 @@ private:
 		state io_uring_cqe* cqe;
 		loop {
 			// Promise<int> p;
-			if(IOUring_TRACING)			printf("Polling with outstanding %d\n",ctx.outstanding);
+			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
 			// TODO:
 			// if there are submited IOs in the ring then priority should be DiskIOComplete, otherwise Zero
 	//		TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
 			//wait(delay(0,TaskPriority::DiskIOComplete ));
+			
+			//If there is nothing submitted, we don't have to poll
+			//yield for X time and roll over
+			if(!ctx.submitted){
+				wait(delay(0.1,TaskPriority::DiskIOComplete));
+				continue;
+			}
 			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
 			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
@@ -781,7 +788,7 @@ private:
 				    TraceEvent("IOGetEventsError").GetLastError();
 				    throw io_error();
 			    }else{	
-				    wait(delay(1,TaskPriority::DiskIOComplete));
+				    wait(delay(0.1,TaskPriority::DiskIOComplete));
 				    continue;
 			    }
 			}
