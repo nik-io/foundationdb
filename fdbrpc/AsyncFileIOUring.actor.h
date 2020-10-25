@@ -192,7 +192,7 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		poll(ev, ctx.promise);
+		poll(ev, &ctx.promise);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -376,16 +376,17 @@ public:
 	}
 
 	static void launch() {
+		static int sent=0;
 #if IOUring_TRACING
-		printf("Launch on %p. Outstanding %d enqueued %d\n",&ctx,ctx.outstanding, ctx.queue.size());
+		printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
 		//FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size() + ctx.outstanding;
 		if (to_push>0) {
 			//Do not have more than a max of ops in the ring
-			if (to_push > FLOW_KNOBS->MAX_OUTSTANDING)
-				to_push=FLOW_KNOBS->MAX_OUTSTANDING;
+			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
+				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -400,7 +401,7 @@ public:
 			//outstanding should always be < max, so n should benon-negative
 			int n = to_push - ctx.outstanding;
 			assert(n>=0);
-#if IOUring_LOGGING
+#if IOUring_TRACING
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
@@ -422,7 +423,7 @@ public:
 				switch(io->opcode){
 				case UIO_CMD_PREAD:
 				{
-#if IOUring_LOGGING
+#if IOUring_TRACING
 					printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
 					struct iovec *iov= &io->iovec;
@@ -433,7 +434,7 @@ public:
 				}
 				case UIO_CMD_PWRITE:
 				{
-#if IOUring_LOGGING
+#if IOUring_TRACING
 					printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
 					struct iovec *iov= &io->iovec;
@@ -518,11 +519,12 @@ public:
 				int old = ctx.submitted;
 				ctx.submitted += rc;
 				if(old==0 && ctx.submitted>0){
-					printf("Sending on promise %p\n",&ctx.promise);
-					ctx.promise.send(1);
+					printf("Sending on promise %p\n",&(ctx.promise));
+					ctx.promise.send(sent++);
+					ctx.promise.reset();
 				}
 		}
-		if(ctx.submitted==0){
+		if(false &&  ctx.submitted==0){
 			printf("Resetting promise\n");
 			ctx.promise.reset();
 			printf("New promise %p\n",&ctx.promise);
@@ -730,7 +732,7 @@ private:
 	}
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
-#if IOUring_LOGGING
+#if IOUring_TRACING
 	    printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
 			this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 #endif
@@ -773,7 +775,7 @@ private:
 	// 	return p.getFuture();
 	// }
 
-	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> p ) {
+	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
 		// state TaskaPriority taskID = g_network->getCurrentTask();
 		state int rc;
 		state io_uring_cqe* cqe;
@@ -788,9 +790,10 @@ private:
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
 			if(!ctx.submitted){
-				Future<int> fi = p.getFuture();
-				printf("Waiting on future\n");
+				Future<int> fi = (p)->getFuture();
+				printf("Waiting on future from promise %p\n",p);
 				int fii = wait(fi);
+				printf("Waited and got %d\n",fii);
 				wait(delay(0,TaskPriority::DiskIOComplete));
 				//wait(delay(0.1,TaskPriority::DiskIOComplete));
 				//continue;

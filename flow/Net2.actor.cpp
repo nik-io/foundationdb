@@ -1243,7 +1243,6 @@ void Net2::run() {
 		while (!ready.empty()) {
 			++countTasks;
 			currentTaskID = ready.top().taskID;
-			printf("taskID %lu\n",currentTaskID);
 			if(currentTaskID < minTaskID) {
 				trackAtPriority(currentTaskID, taskBegin);
 				minTaskID = currentTaskID;
