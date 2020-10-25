@@ -192,7 +192,7 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		poll(ev);
+		poll(ev, ctx.promise);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -515,11 +515,20 @@ public:
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
 				ctx.outstanding +=(dequeued_nr - rc);
+				int old = ctx.submitted;
 				ctx.submitted += rc;
+				if(old==0 && ctx.submitted>0){
+					printf("Sending on promise %p\n",&ctx.promise);
+					ctx.promise.send(1);
 				}
 		}
+		if(ctx.submitted==0){
+			printf("Resetting promise\n");
+			ctx.promise.reset();
+			printf("New promise %p\n",&ctx.promise);
+		}
 	}
-
+	}
 
 	bool failed;
 private:
@@ -602,6 +611,7 @@ private:
 	};
 
 	struct Context {
+		Promise<int> promise;
 		io_uring_t ring;
 		/* io_context_t iocx; */
 		int evfd;
@@ -763,7 +773,7 @@ private:
 	// 	return p.getFuture();
 	// }
 
-	ACTOR static void poll( Reference<IEventFD> ev ) {
+	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> p ) {
 		// state TaskaPriority taskID = g_network->getCurrentTask();
 		state int rc;
 		state io_uring_cqe* cqe;
@@ -778,8 +788,12 @@ private:
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
 			if(!ctx.submitted){
-				wait(delay(0.1,TaskPriority::DiskIOComplete));
-				continue;
+				Future<int> fi = p.getFuture();
+				printf("Waiting on future\n");
+				int fii = wait(fi);
+				wait(delay(0,TaskPriority::DiskIOComplete));
+				//wait(delay(0.1,TaskPriority::DiskIOComplete));
+				//continue;
 			}
 			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
