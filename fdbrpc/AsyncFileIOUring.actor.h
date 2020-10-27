@@ -906,7 +906,7 @@ private:
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
-			        if(r==0){
+			        if(r==0 && !ctx.peek_in_launch){
 			            //yield one time only, when stuff is ready (as in KAIO)
 			            wait(delay(0,TaskPriority::DiskIOComplete ));
 			        }
