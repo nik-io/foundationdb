@@ -382,6 +382,7 @@ public:
 #endif
 		//FOr now, don-t worry about min submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
+		////Note that we have create the ring with a number of entries that equals the MAX_OUTSTANDING
 		int to_push=ctx.queue.size() + ctx.outstanding;
 		if (to_push>0) {
 			//Do not have more than a max of ops in the ring
@@ -519,15 +520,18 @@ public:
 				int old = ctx.submitted;
 				ctx.submitted += rc;
 				if(old==0 && ctx.submitted>0){
+#if IOUring_TRACING
 					printf("Sending on promise %p\n",&(ctx.promise));
+#endif
 					ctx.promise.send(sent++);
 					ctx.promise.reset();
 				}
 		}
 		if(false &&  ctx.submitted==0){
-			printf("Resetting promise\n");
 			ctx.promise.reset();
+#if IOUring_TRACING
 			printf("New promise %p\n",&ctx.promise);
+#endif
 		}
 	}
 	}
@@ -791,20 +795,25 @@ private:
 			//yield for X time and roll over
 			if(!ctx.submitted){
 				Future<int> fi = (p)->getFuture();
-				printf("Waiting on future from promise %p\n",p);
-				int fii = wait(fi);
-				printf("Waited and got %d\n",fii);
+				if(IOUring_TRACING){
+					printf("Waiting on future from promise %p\n",p);
+					int fii = wait(fi);
+					printf("Waited and got %d\n",fii);
+				}
+				else{
+					int fii = wait(fi);
+				}
 				wait(delay(0,TaskPriority::DiskIOComplete));
 				//wait(delay(0.1,TaskPriority::DiskIOComplete));
 				//continue;
 			}
 			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 			if (rc < 0) {
-			    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-				    printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-				    TraceEvent("IOGetEventsError").GetLastError();
-				    throw io_error();
-			    }else{	
+				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+					TraceEvent("IOGetEventsError").GetLastError();
+					throw io_error();
+				}else{	
 				    wait(delay(0.1,TaskPriority::DiskIOComplete));
 				    continue;
 			    }
