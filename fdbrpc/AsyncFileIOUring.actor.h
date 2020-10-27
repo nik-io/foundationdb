@@ -388,7 +388,12 @@ public:
 			//Do not have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
-			    if(!to_push)return;
+			    if(!to_push){
+			        if(ctx.peek_in_launch)
+			            return;
+			        else:
+			         goto peek;
+			    }
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -529,6 +534,7 @@ public:
 		}
 	}
 		if(ctx.peek_in_launch){
+    peek:
 		 io_uring_cqe* cqe;
 		 printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
 		 int p = io_uring_peek_cqe(&ctx.ring, &cqe);
