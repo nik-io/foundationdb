@@ -535,19 +535,28 @@ public:
 		}
 	}
 		if(ctx.peek_in_launch){
-    peek:
-		 io_uring_cqe* cqe;
-		 printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
-		 int p = io_uring_peek_cqe(&ctx.ring, &cqe);
-		 if (p>=0 ){
-		     printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
-		     if( ctx.promise.canBeSet()){
-		     printf("Setting promise to %d\n",sent);
-		     ctx.promise.send(sent++);
-		     }
+        peek:
+             io_uring_cqe* cqe;
+#if IOUring_TRACING
+             printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
+#endif
+             int p = io_uring_peek_cqe(&ctx.ring, &cqe);
+#if IOUring_TRACING
+             if (p>=0 ){
+                 printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
+                 if( ctx.promise.canBeSet()){
+                 printf("Setting promise to %d\n",sent);
+                 ctx.promise.send(sent++);
+                 }
+             }
+#else
+             if (p>=0 && ctx.promise.canBeSet()){
+                 ctx.promise.send(sent++);
+             }
+#endif
 		 }
-		}
 	}
+
 
 
 	bool failed;
@@ -909,18 +918,17 @@ private:
                 }
 			}else{
 			    Future<int> fi = (p)->getFuture();
-			    printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
+			    if(IOUring_TRACING)printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
 			    int fii = wait(fi);
-			    printf("Waited and got %d\n",fii);
+			    if(IOUring_TRACING)printf("Waited and got %d\n",fii);
 			    p->reset();
-			    printf("promise reset. canbeset: %d\n",p->canBeSet());
+			    if(IOUring_TRACING)printf("promise reset. canbeset: %d\n",p->canBeSet());
 			    wait(delay(0,TaskPriority::DiskIOComplete ));
 			}
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
 			state int r=0;
 			while(1){ //loop as long as there are ready events
-			    printf("r=%d\n",r);
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
