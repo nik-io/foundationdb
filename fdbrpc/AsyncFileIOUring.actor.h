@@ -243,7 +243,7 @@ public:
 		io->offset = offset;
 
 		nextFileSize = std::max( nextFileSize, offset+length );
-#if IOUring_TRACING		
+#if IOUring_TRACING
 		printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
 #endif
 		enqueue(io, "write", this);
@@ -397,11 +397,11 @@ public:
 			//we only push new stuff from the ctx. Outstanding are alrady in the ring
 			//(A workaround could be possibly cqe-see t
 			//he outstanding and re-enqueue them, but I guess it costs too much
-			
+
 			//These are the new ones we have to put in the ring
 			//outstanding should always be < max, so n should benon-negative
 			int n = to_push - ctx.outstanding;
-			assert(n>=0);
+			ASSERT(n>=0);
 #if IOUring_TRACING
 			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
@@ -442,7 +442,6 @@ public:
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
 					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
-					//io_uring_prep_write(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset);
 					break;
 				}
 				case UIO_CMD_FSYNC:
@@ -700,7 +699,7 @@ private:
 			countLogicalWrites.init(LiteralStringRef("AsyncFile.CountLogicalWrites"));
 			countLogicalReads.init( LiteralStringRef("AsyncFile.CountLogicalReads"));
 		}
-		
+
 #if IOUring_LOGGING
 		logFile = nullptr;
 		// TODO:  Don't do this hacky investigation-specific thing
@@ -779,7 +778,7 @@ private:
 	// 	return p.getFuture();
 	// }
 
-	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
+	ACTOR static void poll2( Reference<IEventFD> ev, Promise<int> *p ) {
 		// state TaskaPriority taskID = g_network->getCurrentTask();
 		state int rc;
 		state io_uring_cqe* cqe;
@@ -790,7 +789,7 @@ private:
 			// if there are submited IOs in the ring then priority should be DiskIOComplete, otherwise Zero
 	//		TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
 			//wait(delay(0,TaskPriority::DiskIOComplete ));
-			
+
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
 			if(!ctx.submitted){
@@ -813,7 +812,7 @@ private:
 					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
 					TraceEvent("IOGetEventsError").GetLastError();
 					throw io_error();
-				}else{	
+				}else{
 				    wait(delay(0.1,TaskPriority::DiskIOComplete));
 				    continue;
 			    }
@@ -866,6 +865,91 @@ private:
 				ctx.removeFromRequestList(iob);
 			}
 			iob->setResult(res);
+		}
+	}
+
+
+	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
+		state int rc;
+		state io_uring_cqe cqe[100];
+		loop {
+			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
+
+			//If there is nothing submitted, we don't have to poll
+			//yield for X time and roll over
+			if(!ctx.submitted){
+				Future<int> fi = (p)->getFuture();
+				if(IOUring_TRACING){
+					printf("Waiting on future from promise %p\n",p);
+					int fii = wait(fi);
+					printf("Waited and got %d\n",fii);
+				}
+				else{
+					int fii = wait(fi);
+				}
+			}
+			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
+			//Submitted > 0
+			int r=0;
+			do{
+			    rc = io_uring_peek_cqe(&ctx.ring, &cqe[r]);
+			    if(rc){
+			        if(r==0){
+			            //yield one time only, when stuff is ready (as in KAIO)
+			            wait(delay(0,TaskPriority::DiskIOComplete ));
+			        }
+			        r++;
+			    }
+			}while(rc>0); //loop as long as there are ready events
+
+
+				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+					TraceEvent("IOGetEventsError").GetLastError();
+					throw io_error();
+				}else{
+				    //We did not pull anything.
+				    if(!r){
+				    wait(delay(0.1,TaskPriority::DiskIOComplete));
+				    continue;
+				    }
+			    }
+
+
+
+			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
+
+
+			{
+			    ++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+
+			int got;
+		    for(got=0;got<r;got++){
+		        int res = cqe[got]->res;
+		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe[got]));
+			    ASSERT(nullptr != iob);
+			    io_uring_cqe_seen(&ctx.ring, cqe[got]);
+			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+                if(ctx.ioTimeout > 0) {
+					ctx.removeFromRequestList(iob);
+				}
+
+				iob->setResult( res);
+		    }
+		    ctx.submitted-=got;
 		}
 	}
 };
@@ -964,7 +1048,7 @@ ACTOR Future<Void> runTestIOUringOps(Reference<IAsyncFile> f, int numIterations,
 			ASSERT(!expectedToSucceed && e.code() == error_code_io_timeout);
 		}
 	}
-	
+
 	FastAllocator<4096>::release(buf);
 
 	ASSERT(expectedToSucceed || opTimedOut);
@@ -1014,5 +1098,5 @@ TEST_CASE("/fdbrpc/AsyncFileIOUring/RequestList") {
 AsyncFileIOUring::Context AsyncFileIOUring::ctx;
 
 #include "flow/unactorcompiler.h"
-#endif 
+#endif
 #endif
