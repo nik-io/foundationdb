@@ -530,11 +530,12 @@ public:
 	}
 		if(ctx.peek_in_launch){
 		 io_uring_cqe* cqe;
+		 printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
 		 int p =  io_uring_peek_cqe(&ctx.ring, &cqe);
 		 if (p==0 && ctx.promise.canBeSet()){
 		     printf("Setting promise to %d\n",sent);
 		     ctx.promise.send(sent++);
-		     }
+		 }
 		}
 	}
 
@@ -878,11 +879,12 @@ private:
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
 		state int rc=0;
 		loop {
-			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
 
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
 			if(!ctx.peek_in_launch){
+			   if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
+
                 if(!ctx.submitted){
                     Future<int> fi = (p)->getFuture();
                     if(IOUring_TRACING){
@@ -896,7 +898,7 @@ private:
                 }
 			}else{
 			    Future<int> fi = (p)->getFuture();
-			    printf("Waiting on future from promise %p\n",p);
+			    printf("Waiting on future from promise %p with submitred %d and outstanding \n",p,ctx.submitted,ctx.outstanding);
 			    int fii = wait(fi);
 			    printf("Waited and got %d\n",fii);
 			    wait(delay(0,TaskPriority::DiskIOComplete ));
