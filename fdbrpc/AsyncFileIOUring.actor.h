@@ -391,8 +391,9 @@ public:
 			    if(!to_push){
 			        if(ctx.peek_in_launch)
 			            return;
-			        else:
+			        else{
 			         goto peek;
+			         }
 			    }
 			ctx.submitMetric = true;
 
