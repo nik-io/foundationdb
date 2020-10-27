@@ -870,7 +870,7 @@ private:
 
 
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
-		state int rc;
+		state int rc=0;
 		state io_uring_cqe cqe[100];
 		loop {
 			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
@@ -891,16 +891,18 @@ private:
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
 			int r=0;
-			do{
+			while(1){ //loop as long as there are ready events
 			    rc = io_uring_peek_cqe(&ctx.ring, &cqe[r]);
-			    if(rc){
+			    if(0==rc){
 			        if(r==0){
 			            //yield one time only, when stuff is ready (as in KAIO)
 			            wait(delay(0,TaskPriority::DiskIOComplete ));
 			        }
 			        r++;
+			    }else{
+			        break;
 			    }
-			}while(rc>0); //loop as long as there are ready events
+			}
 
 
 				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
