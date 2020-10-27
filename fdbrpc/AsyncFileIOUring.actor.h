@@ -388,6 +388,7 @@ public:
 			//Do not have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
+			    if(!to_push)return;
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -525,12 +526,6 @@ public:
 					ctx.promise.send(sent++);
 					ctx.promise.reset();
 				}
-		}
-		if(false &&  ctx.submitted==0){
-			ctx.promise.reset();
-#if IOUring_TRACING
-			printf("New promise %p\n",&ctx.promise);
-#endif
 		}
 	}
 	}
