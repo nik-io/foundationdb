@@ -903,6 +903,7 @@ private:
 			    printf("Waited and got %d\n",fii);
 			    wait(delay(0,TaskPriority::DiskIOComplete ));
 			    p->reset();
+			    printf("promise reset. canbeset: %d\n",p->canBeSet());
 			}
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
