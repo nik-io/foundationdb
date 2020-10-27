@@ -519,7 +519,7 @@ public:
 				ctx.outstanding +=(dequeued_nr - rc);
 				int old = ctx.submitted;
 				ctx.submitted += rc;
-				if(old==0 && ctx.submitted>0 && ctx.peek_in_launch){
+				if(old==0 && ctx.submitted>0 && !ctx.peek_in_launch){
 #if IOUring_TRACING
 					printf("Sending on promise %p\n",&(ctx.promise));
 #endif
