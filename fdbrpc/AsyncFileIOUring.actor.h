@@ -531,13 +531,17 @@ public:
 		if(ctx.peek_in_launch){
 		 io_uring_cqe* cqe;
 		 printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
-		 int p =  io_uring_peek_cqe(&ctx.ring, &cqe);
-		 if (p==0 && ctx.promise.canBeSet()){
+		 int p = io_uring_peek_cqe(&ctx.ring, &cqe);
+		 if (p>=0 ){
+		     printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
+		     if( ctx.promise.canBeSet()){
 		     printf("Setting promise to %d\n",sent);
 		     ctx.promise.send(sent++);
+		     }
 		 }
 		}
 	}
+
 
 	bool failed;
 private:
@@ -898,12 +902,12 @@ private:
                 }
 			}else{
 			    Future<int> fi = (p)->getFuture();
-			    printf("Waiting on future from promise %p with submitred %d and outstanding \n",p,ctx.submitted,ctx.outstanding);
+			    printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
 			    int fii = wait(fi);
 			    printf("Waited and got %d\n",fii);
-			    wait(delay(0,TaskPriority::DiskIOComplete ));
 			    p->reset();
 			    printf("promise reset. canbeset: %d\n",p->canBeSet());
+			    wait(delay(0,TaskPriority::DiskIOComplete ));
 			}
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
