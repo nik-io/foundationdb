@@ -942,7 +942,7 @@ private:
 			int got;
 		    for(got=0;got<r;got++){
 		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(context.cqes[got]));
+		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
 			    ASSERT(nullptr != iob);
 			    io_uring_cqe_seen(&ctx.ring, ctx.cqes[got]);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
