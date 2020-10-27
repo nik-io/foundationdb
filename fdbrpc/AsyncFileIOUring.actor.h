@@ -389,7 +389,7 @@ public:
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
 			    if(!to_push){
-			        if(ctx.peek_in_launch)
+			        if(!ctx.peek_in_launch)
 			            return;
 			        else{
 			         goto peek;
