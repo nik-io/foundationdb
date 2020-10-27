@@ -890,7 +890,7 @@ private:
 			}
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
-			int r=0;
+			state int r=0;
 			while(1){ //loop as long as there are ready events
 			    rc = io_uring_peek_cqe(&ctx.ring, &cqe[r]);
 			    if(0==rc){
@@ -910,8 +910,7 @@ private:
 					TraceEvent("IOGetEventsError").GetLastError();
 					throw io_error();
 				}else{
-				    //We did not pull anything.
-				    if(!r){
+				    if(!r){//We did not pull anything.
 				    wait(delay(0.1,TaskPriority::DiskIOComplete));
 				    continue;
 				    }
