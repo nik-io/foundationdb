@@ -519,7 +519,7 @@ public:
 				ctx.outstanding +=(dequeued_nr - rc);
 				int old = ctx.submitted;
 				ctx.submitted += rc;
-				if(old==0 && ctx.submitted>0){
+				if(old==0 && ctx.submitted>0 && ctx.peek_in_launch){
 #if IOUring_TRACING
 					printf("Sending on promise %p\n",&(ctx.promise));
 #endif
@@ -528,6 +528,12 @@ public:
 				}
 		}
 	}
+		if(ctx.peek_in_launch){
+		 io_uring_cqe* cqe;
+		 int p =  io_uring_peek_cqe(&ctx.ring, &cqe);
+		 if (p==0 && ctx.promise.canBeSet())
+		     ctx.promise.send(1);
+		}
 	}
 
 	bool failed;
@@ -626,6 +632,7 @@ private:
 		Int64MetricHandle submitMetric;
 
 		struct io_uring_cqe* cqes[1024];
+		bool peek_in_launch=true;
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -873,16 +880,23 @@ private:
 
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
-			if(!ctx.submitted){
-				Future<int> fi = (p)->getFuture();
-				if(IOUring_TRACING){
-					printf("Waiting on future from promise %p\n",p);
-					int fii = wait(fi);
-					printf("Waited and got %d\n",fii);
-				}
-				else{
-					int fii = wait(fi);
-				}
+			if(!ctx.peek_in_launch){
+                if(!ctx.submitted){
+                    Future<int> fi = (p)->getFuture();
+                    if(IOUring_TRACING){
+                        printf("Waiting on future from promise %p\n",p);
+                        int fii = wait(fi);
+                        printf("Waited and got %d\n",fii);
+                    }
+                    else{
+                        int fii = wait(fi);
+                    }
+                }
+			}else{
+			    Future<int> fi = (p)->getFuture();
+			    int fii = wait(fi);
+			    wait(delay(0,TaskPriority::DiskIOComplete ));
+			    p->reset();
 			}
 			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
