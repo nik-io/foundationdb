@@ -532,7 +532,7 @@ public:
 		 io_uring_cqe* cqe;
 		 int p =  io_uring_peek_cqe(&ctx.ring, &cqe);
 		 if (p==0 && ctx.promise.canBeSet()){
-		     printf("Setting promise to %d\n",sent)
+		     printf("Setting promise to %d\n",sent);
 		     ctx.promise.send(sent++);
 		     }
 		}
