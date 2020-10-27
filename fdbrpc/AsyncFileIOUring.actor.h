@@ -871,7 +871,7 @@ private:
 
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
 		state int rc=0;
-		state io_uring_cqe cqe[100];
+		state io_uring_cqe* cqe[100];
 		loop {
 			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
 
