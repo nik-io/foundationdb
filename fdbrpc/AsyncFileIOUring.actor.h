@@ -871,7 +871,6 @@ private:
 
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
 		state int rc=0;
-		state io_uring_cqe* cqe[100];
 		loop {
 			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
 
@@ -892,7 +891,7 @@ private:
 			//Submitted > 0
 			state int r=0;
 			while(1){ //loop as long as there are ready events
-			    rc = io_uring_peek_cqe(&ctx.ring, &cqe[r]);
+			    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 			    if(0==rc){
 			        if(r==0){
 			            //yield one time only, when stuff is ready (as in KAIO)
@@ -939,10 +938,10 @@ private:
 
 			int got;
 		    for(got=0;got<r;got++){
-		        int res = cqe[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe[got]));
+		        int res = ctx.cqes[got]->res;
+		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqes[got]));
 			    ASSERT(nullptr != iob);
-			    io_uring_cqe_seen(&ctx.ring, cqe[got]);
+			    io_uring_cqe_seen(&ctx.ring, ctx.cqes[got]);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0) {
 					ctx.removeFromRequestList(iob);

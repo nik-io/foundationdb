@@ -513,6 +513,8 @@ private:
 		Int64MetricHandle countAIOSubmit;
 		Int64MetricHandle countAIOCollect;
 		Int64MetricHandle submitMetric;
+
+		struct io_uring_cqe* cqes[FLOW_KNOBS->MAX_OUTSTANDING];
 		
 		double ioTimeout;
 		bool timeoutWarnOnly;
