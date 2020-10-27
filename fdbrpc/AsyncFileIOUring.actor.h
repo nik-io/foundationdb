@@ -531,8 +531,10 @@ public:
 		if(ctx.peek_in_launch){
 		 io_uring_cqe* cqe;
 		 int p =  io_uring_peek_cqe(&ctx.ring, &cqe);
-		 if (p==0 && ctx.promise.canBeSet())
-		     ctx.promise.send(1);
+		 if (p==0 && ctx.promise.canBeSet()){
+		     printf("Setting promise to %d\n",sent)
+		     ctx.promise.send(sent++);
+		     }
 		}
 	}
 
@@ -894,7 +896,9 @@ private:
                 }
 			}else{
 			    Future<int> fi = (p)->getFuture();
+			    printf("Waiting on future from promise %p\n",p);
 			    int fii = wait(fi);
+			    printf("Waited and got %d\n",fii);
 			    wait(delay(0,TaskPriority::DiskIOComplete ));
 			    p->reset();
 			}
