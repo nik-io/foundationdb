@@ -896,6 +896,7 @@ private:
 			    printf("r=%d\n",r);
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
+			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 			        if(r==0){
 			            //yield one time only, when stuff is ready (as in KAIO)
 			            wait(delay(0,TaskPriority::DiskIOComplete ));
@@ -944,7 +945,6 @@ private:
 		        int res = ctx.cqes[got]->res;
 		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
 			    ASSERT(nullptr != iob);
-			    io_uring_cqe_seen(&ctx.ring, ctx.cqes[got]);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0) {
 					ctx.removeFromRequestList(iob);
