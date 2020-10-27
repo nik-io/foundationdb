@@ -630,7 +630,7 @@ private:
 		Int64MetricHandle countAIOCollect;
 		Int64MetricHandle submitMetric;
 
-		struct io_uring_cqe* cqes[FLOW_KNOBS->MAX_OUTSTANDING];
+		struct io_uring_cqe* cqes[1024];
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -893,7 +893,8 @@ private:
 			//Submitted > 0
 			state int r=0;
 			while(1){ //loop as long as there are ready events
-			    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
+			    printf("r=%d\n",r);
+			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
 			        if(r==0){
 			            //yield one time only, when stuff is ready (as in KAIO)
