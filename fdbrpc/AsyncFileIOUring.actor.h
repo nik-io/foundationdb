@@ -38,7 +38,7 @@
 #include "flow/Knobs.h"
 #include "flow/UnitTest.h"
 #include <stdio.h>
-#include "flow/crc32c.h"
+#include "flow/Hash3.h"
 #include "flow/genericactors.actor.h"
 #include "flow/actorcompiler.h"  // This must be the last #include.
 
