@@ -45,6 +45,7 @@
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
 #define IOUring_TRACING 0
+#define AVOID_STALLS 0
 
 enum {
 	UIO_CMD_PREAD = 0,
@@ -459,7 +460,7 @@ public:
 				}
 				ctx.queue.pop();
 				io_uring_sqe_set_data(sqe, io);
-				if(ctx.ioTimeout > 0) {
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.appendToRequestList(io);
 				}
 
@@ -507,7 +508,8 @@ public:
 			++ctx.countAIOSubmit;
 
 			double elapsed = timer_monotonic() - begin;
-			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
+
+			if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
 
 			//TraceEvent("Launched").detail("N", rc).detail("Queued", ctx.queue.size()).detail("Elapsed", elapsed).detail("Outstanding", ctx.outstanding+rc);
 			//printf("launched: %d/%d in %f us (%d outstanding; lowest prio %d)\n", rc, ctx.queue.size(), elapsed*1e6, ctx.outstanding + rc, toStart[n-1]->getTask());
@@ -522,7 +524,8 @@ public:
 				}
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
-				ctx.outstanding +=(dequeued_nr - rc);
+				if (dequeued_nr > rc) printf("Dequeued %d items but only %d pushed\n",dequeued_nr, rc);
+			    ctx.outstanding +=(dequeued_nr - rc);
 				int old = ctx.submitted;
 				ctx.submitted += rc;
 				if(old==0 && ctx.submitted>0 && !ctx.peek_in_launch){
@@ -872,12 +875,12 @@ private:
 				double t = timer_monotonic();
 				double elapsed = t - ctx.ioStallBegin;
 				ctx.ioStallBegin = t;
-				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 			}
 
 			ctx.submitted --;
 
-			if(ctx.ioTimeout > 0) {
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 				double currentTime = now();
 				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
 					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
@@ -888,7 +891,7 @@ private:
 
 			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
 
-			if(ctx.ioTimeout > 0) {
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 				ctx.removeFromRequestList(iob);
 			}
 			iob->setResult(res);
@@ -923,9 +926,8 @@ private:
 			    if(IOUring_TRACING)printf("Waited and got %d\n",fii);
 			    p->reset();
 			    if(IOUring_TRACING)printf("promise reset. canbeset: %d\n",p->canBeSet());
-			    wait(delay(0,TaskPriority::DiskIOComplete ));
+			    wait(delay(0,TaskPriority::DiskIOComplete));
 			}
-			//TODO: we could put the peek in the launch itself, and only send the proime when peek > 0
 			//Submitted > 0
 			state int r=0;
 			while(1){ //loop as long as there are ready events
@@ -964,10 +966,10 @@ private:
 				double t = timer_monotonic();
 				double elapsed = t - ctx.ioStallBegin;
 				ctx.ioStallBegin = t;
-				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 			}
 
-			if(ctx.ioTimeout > 0) {
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 				double currentTime = now();
 				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
 					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
@@ -981,7 +983,7 @@ private:
 		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-                if(ctx.ioTimeout > 0) {
+                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.removeFromRequestList(iob);
 				}
 
