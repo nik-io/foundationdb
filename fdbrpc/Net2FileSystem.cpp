@@ -64,8 +64,12 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 	// of Kernel AIO. And EIO_USE_ODIRECT can be used to turn on or off O_DIRECT within
 	// EIO.
 	if ((flags & IAsyncFile::OPEN_UNBUFFERED) && !(flags & IAsyncFile::OPEN_NO_AIO) &&
-	    !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO)
-		f = AsyncFileKAIO::open(filename, flags, mode, NULL);
+	    !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO){
+		if (!FLOW_KNOBS->ENABLE_IO_URING)
+			f = AsyncFileKAIO::open(filename, flags, mode, NULL);
+		else
+			f = AsyncFileIOUring::open(filename, flags, mode);
+	}
 	else
 #endif
 	f = Net2AsyncFile::open(filename, flags, mode, static_cast<boost::asio::io_service*> ((void*) g_network->global(INetwork::enASIOService)));
@@ -93,7 +97,11 @@ Net2FileSystem::Net2FileSystem(double ioTimeout, std::string fileSystemPath)
 {
 	Net2AsyncFile::init();
 #ifdef __linux__
-	AsyncFileKAIO::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
+	if (!FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO)
+		if(!FLOW_KNOBS->ENABLE_IO_URING)
+			AsyncFileKAIO::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
+		else
+			AsyncFileIOUring::init( Reference<IEventFD>(N2::ASIOReactor::getEventFD()), ioTimeout );
 
 	if (fileSystemPath.empty()) {
 		checkFileSystem = false;
