@@ -35,6 +35,7 @@
 #include "fdbrpc/AsyncFileEIO.actor.h"
 #include "fdbrpc/AsyncFileWinASIO.actor.h"
 #include "fdbrpc/AsyncFileKAIO.actor.h"
+#include "fdbrpc/AsyncFileIOUring.actor.h"
 #include "flow/AsioReactor.h"
 #include "flow/Platform.h"
 #include "fdbrpc/AsyncFileWriteChecker.h"
