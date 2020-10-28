@@ -364,9 +364,9 @@ public:
 	    }
 	    return fsync;
 	}
-	Future<int64_t> size() const override { return nextFileSize; }
-	int64_t debugFD() const override { return fd; }
-	std::string getFilename() const override { return filename; }
+	virtual Future<int64_t> size()  { return nextFileSize; }
+	virtual int64_t debugFD()  { return fd; }
+	virtual std::string getFilename()  { return filename; }
 	~AsyncFileIOUring() {
 		close(fd);
 
