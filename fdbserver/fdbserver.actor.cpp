@@ -1492,15 +1492,18 @@ int main(int argc, char* argv[]) {
 			flushAndExit(FDB_EXIT_ERROR);
 		}
 
+
 		if (role == SkipListTest) {
 			skipListTest();
 			flushAndExit(FDB_EXIT_SUCCESS);
 		}
 
+		/*
 		if (role == DSLTest) {
 			dsltest();
 			flushAndExit(FDB_EXIT_SUCCESS);
 		}
+		 */
 
 		if (role == VersionedMapTest) {
 			versionedMapTest();
