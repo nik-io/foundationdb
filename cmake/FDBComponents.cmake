@@ -84,7 +84,7 @@ endif()
 find_program(GO_EXECUTABLE go)
 # building the go binaries is currently not supported on Windows
 if(GO_EXECUTABLE AND NOT WIN32)
-  set(WITH_GO ON)
+  set(WITH_GO OFF)
 else()
   set(WITH_GO OFF)
 endif()
