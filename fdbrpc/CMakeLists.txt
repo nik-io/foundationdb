@@ -64,6 +64,7 @@ if(USE_VALGRIND)
   target_link_libraries(thirdparty PUBLIC Valgrind)
 endif()
 
+set(FDBRPC_SRCS_DISABLE_ACTOR_WITHOUT_WAIT_WARNING
 add_library(uring SHARED IMPORTED) # or STATIC instead of SHARED
 set_target_properties(uring PROPERTIES
         IMPORTED_LOCATION "/root/liburing/src/liburing.so.2.0.0"

@@ -1498,12 +1498,12 @@ int main(int argc, char* argv[]) {
 			flushAndExit(FDB_EXIT_SUCCESS);
 		}
 
-		/*
+
 		if (role == DSLTest) {
 			dsltest();
 			flushAndExit(FDB_EXIT_SUCCESS);
 		}
-		 */
+		 
 
 		if (role == VersionedMapTest) {
 			versionedMapTest();
