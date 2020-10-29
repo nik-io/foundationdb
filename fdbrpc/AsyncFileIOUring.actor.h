@@ -592,6 +592,7 @@ private:
 		IOBlock *next;
 		struct iovec iovec;
 		double startTime;
+		int iou_res;
 #if IOUring_LOGGING
 		int32_t iolog_id;
 #endif
@@ -914,6 +915,8 @@ private:
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
 			        ctx.io_res[r] = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+			        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
+
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 			        r++;
 			    }else{
@@ -955,8 +958,9 @@ private:
 
 			int got;
 		    for(got=0;got<r;got++){
-		        int res = ctx.cqes[got]->res;
+
 		        IOBlock * const iob = ctx.io_res[got];
+		        int res = iob->iou_res;
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
@@ -997,6 +1001,7 @@ private:
 		    //Peek has found something. Let's consume all there is
 		    while(1){ //loop as long as there are ready events
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
@@ -1033,8 +1038,9 @@ private:
 
 			int got;
 		    for(got=0;got<r;got++){
-		        int res = ctx.io_res[got]->res;
-		        IOBlock * const iob = res[got];
+
+		        IOBlock * const iob = ctx.io_res[got];
+		        int res = iob->iou_res;
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
@@ -1085,6 +1091,7 @@ private:
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
 			        ctx.io_res[r]= static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+			        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 			        if(r==0 && !ctx.peek_in_launch){
 			            //yield one time only, when stuff is ready (as in KAIO)
@@ -1131,8 +1138,8 @@ private:
 
 			int got;
 		    for(got=0;got<r;got++){
-		        int res = ctx.cqes[got]->res;
 		        IOBlock * const iob = ctx.io_res[got];
+		        int res = iob->iou_res;
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
