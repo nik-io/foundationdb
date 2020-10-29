@@ -195,7 +195,7 @@ public:
 		ctx.evfd = ev->getFD();
 		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
 		    //poll(ev, &ctx.promise);
-		    real_poll();
+		    real_poll(ev, &ctx.promise);
 		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
@@ -977,7 +977,7 @@ private:
 	    return 0;
 	}
 
-	ACTOR static void real_poll(){
+	ACTOR static void real_poll( Reference<IEventFD> ev, Promise<int> *p){
 	    state int rc=0;
 	    state int r=0;
 		loop {
