@@ -990,7 +990,7 @@ private:
 		    if(rc<0){//Noting found
 		        if(!throw_iou_error(rc)){
 		           loop_over:
-                        wait(delay(FLOW_KNOBS->IOURING_POLL_SLEEP,TaskPriority::DiskIOComplete));
+                        wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
                         continue;
 		        }
 		    }
