@@ -1002,7 +1002,6 @@ private:
 		    while(1){ //loop as long as there are ready events
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
-		        printf("Polling io %p\n",ctx.io_res[r]);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
@@ -1047,7 +1046,6 @@ private:
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.removeFromRequestList(iob);
 				}
-                printf("Setting result for io %p\n",ctx.io_res[got]);
 				iob->setResult(res);
 		    }
 		    ctx.submitted-=got;
