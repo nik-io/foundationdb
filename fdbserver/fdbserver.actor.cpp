@@ -1503,7 +1503,7 @@ int main(int argc, char* argv[]) {
 			dsltest();
 			flushAndExit(FDB_EXIT_SUCCESS);
 		}
-		 
+
 
 		if (role == VersionedMapTest) {
 			versionedMapTest();
