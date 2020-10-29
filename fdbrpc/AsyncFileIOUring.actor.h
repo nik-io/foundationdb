@@ -966,18 +966,8 @@ private:
 		    ctx.submitted-=got;
 	}
 
-	static  int throw_iou_error(int rc){
-	    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
-                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-                        TraceEvent("IOGetEventsError").GetLastError();
-                        throw io_error();
-                        return 1;
-                }
 
-	    return 0;
-	}
 
-	/*
 	ACTOR static void real_poll( Reference<IEventFD> ev, Promise<int> *p){
 	    state int rc=0;
 	    state int r=0;
@@ -988,21 +978,32 @@ private:
 		    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 
 		    if(rc<0){//Noting found
-		        if(!throw_iou_error(rc)){
+
+		        if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+                        TraceEvent("IOGetEventsError").GetLastError();
+                        throw io_error();
+                }
+
 		           loop_over:
                         wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
                         continue;
-		        }
+
 		    }
 		    //Peek has found something. Let's consume all there is
 		    while(1){ //loop as long as there are ready events
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
-			    if(!throw_iou_error(rc)){
-			        if(rc<0)break;
 
+			    if(rc<0){
+			        if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+                        TraceEvent("IOGetEventsError").GetLastError();
+                        throw io_error();
+                }
 			    }
+
 			 }
 		    ASSERT(r>0);
 
@@ -1040,7 +1041,7 @@ private:
 		    ctx.submitted-=got;
 		}
 	}
-	 */
+
 
 
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
