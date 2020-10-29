@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 1
+#define IOUring_TRACING 0
 #define AVOID_STALLS 0
 
 enum {
@@ -664,6 +664,7 @@ private:
 		Int64MetricHandle submitMetric;
 
 		struct io_uring_cqe* cqes[1024];
+		struct IOBlock* io_res[1024];
 		bool peek_in_launch=true;
 		bool consume_in_launch=true;
 
@@ -912,6 +913,7 @@ private:
 			while(1){ //loop as long as there are ready events
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
+			        ctx.io_res[r] = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 			        r++;
 			    }else{
@@ -954,7 +956,7 @@ private:
 			int got;
 		    for(got=0;got<r;got++){
 		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
+		        IOBlock * const iob = ctx.io_res[got];
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
@@ -991,8 +993,10 @@ private:
                         continue;
 
 		    }
+		    //TODO  Diego: just do peek in the loop. If you found nothing, yield. Else, process
 		    //Peek has found something. Let's consume all there is
 		    while(1){ //loop as long as there are ready events
+		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
@@ -1002,10 +1006,9 @@ private:
                         printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
                         TraceEvent("IOGetEventsError").GetLastError();
                         throw io_error();
-                }
+                    }
 			        break;
 			    }
-
 			 }
 		    ASSERT(r>0);
 
@@ -1030,8 +1033,8 @@ private:
 
 			int got;
 		    for(got=0;got<r;got++){
-		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
+		        int res = ctx.io_res[got]->res;
+		        IOBlock * const iob = res[got];
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
@@ -1081,6 +1084,7 @@ private:
 			while(1){ //loop as long as there are ready events
 			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
 			    if(0==rc){
+			        ctx.io_res[r]= static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 			        if(r==0 && !ctx.peek_in_launch){
 			            //yield one time only, when stuff is ready (as in KAIO)
@@ -1128,7 +1132,7 @@ private:
 			int got;
 		    for(got=0;got<r;got++){
 		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
+		        IOBlock * const iob = ctx.io_res[got];
 			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
