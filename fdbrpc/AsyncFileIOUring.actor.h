@@ -194,8 +194,8 @@ public:
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
 		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
-		    poll(ev, &ctx.promise);
-		    //real_poll(ev, &ctx.promise);
+		    //poll(ev, &ctx.promise);
+		    real_poll(ev, &ctx.promise);
 		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
@@ -665,8 +665,8 @@ private:
 
 		struct io_uring_cqe* cqes[1024];
 		struct IOBlock* io_res[1024];
-		bool peek_in_launch=true;
-		bool consume_in_launch=true;
+		bool peek_in_launch=false;
+		bool consume_in_launch=false;
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
