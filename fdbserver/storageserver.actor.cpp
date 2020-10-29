@@ -373,7 +373,7 @@ public:
 		if (lastArena.getSize() >= 65536) lastArena = Arena(4096);
 		u.arena() = lastArena;
 		counters.bytesInput += VERSION_OVERHEAD;
-		printf("new inputB (V) %f\n",counters.bytesInput.getValue());
+		printf("new inputB (V) %lu\n",counters.bytesInput.getValue());
 		return u;
 	}
 
@@ -697,7 +697,7 @@ public:
 	}
 
 	Counter::Value queueSize() {
-		printf("I %f D %f Q %f\n",counters.bytesInput.getValue(),counters.bytesDurable.getValue(),counters.bytesInput.getValue() - counters.bytesDurable.getValue());
+		printf("I %lu D %lu Q %lu\n",counters.bytesInput.getValue(),counters.bytesDurable.getValue(),counters.bytesInput.getValue() - counters.bytesDurable.getValue());
 		return counters.bytesInput.getValue() - counters.bytesDurable.getValue();
 	}
 
@@ -1817,7 +1817,7 @@ bool changeDurableVersion( StorageServer* data, Version desiredDurableVersion ) 
 			}
 		}
 		data->counters.bytesDurable += bytesDurable;
-		printf("New durable %f\n",data->counters.bytesDurable.getValue());
+		printf("New durable %lu\n",data->counters.bytesDurable.getValue());
 	}
 
 	if (EXPENSIVE_VALIDATION) {
