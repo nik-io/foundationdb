@@ -1001,6 +1001,7 @@ private:
 		    //Peek has found something. Let's consume all there is
 		    while(1){ //loop as long as there are ready events
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+		        ASSERT(ctx.io_res[r]!=nullptr);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
@@ -1041,7 +1042,6 @@ private:
 
 		        IOBlock * const iob = ctx.io_res[got];
 		        int res = iob->iou_res;
-			    ASSERT(nullptr != iob);
 			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.removeFromRequestList(iob);
