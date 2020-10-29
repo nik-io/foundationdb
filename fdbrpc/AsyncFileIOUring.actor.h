@@ -389,16 +389,14 @@ public:
 			//Do not have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
-			    if(!to_push){
-			        if(!ctx.peek_in_launch)
-			            return;
-			        else{
-			         goto peek;
-			         }
-			    }
+			if(!to_push){
+			    if(!ctx.peek_in_launch) return;
+			    else goto peek;
+			}
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
+			//TODO: this should be !outstanding+submitted?
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];

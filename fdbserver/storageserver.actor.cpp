@@ -1817,7 +1817,7 @@ bool changeDurableVersion( StorageServer* data, Version desiredDurableVersion ) 
 			}
 		}
 		data->counters.bytesDurable += bytesDurable;
-		printf("New durable %f\n",data->counters.bytesDurable);
+		printf("New durable %f\n",data->counters.bytesDurable.getValue());
 	}
 
 	if (EXPENSIVE_VALIDATION) {
