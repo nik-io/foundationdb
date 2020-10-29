@@ -193,7 +193,7 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		if(!(ctx.peek_in_launch && ctx.consume_in_lanch)) poll(ev, &ctx.promise);
+		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) poll(ev, &ctx.promise);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
