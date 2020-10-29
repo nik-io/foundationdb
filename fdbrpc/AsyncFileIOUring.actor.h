@@ -966,7 +966,7 @@ private:
 		    ctx.submitted-=got;
 	}
 
-	static inline int throw_iou_error(int rc){
+	static  int throw_iou_error(int rc){
 	    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
                         printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
                         TraceEvent("IOGetEventsError").GetLastError();
@@ -980,7 +980,6 @@ private:
 	ACTOR static void real_poll(){
 	    state int rc=0;
 	    state int r=0;
-	    state io_uring_cqe* cqe;
 		loop {
 		    //Don't even bother with checking if nothing has been submitted
 		    if(!ctx.submitted)goto loop_over;
