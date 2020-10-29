@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 #define AVOID_STALLS 0
 
 enum {
@@ -408,7 +408,7 @@ public:
 			int n = to_push - ctx.outstanding;
 			ASSERT(n>=0);
 #if IOUring_TRACING
-			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
+			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
