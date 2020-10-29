@@ -976,8 +976,8 @@ private:
 
 	ACTOR static void real_poll( Reference<IEventFD> ev, Promise<int> *p){
 	    state int rc=0;
-	    state int r=0;
 		loop {
+		     state int r=0;
 		    //Don't even bother with checking if nothing has been submitted
 		    if(!ctx.submitted){
 		        wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
