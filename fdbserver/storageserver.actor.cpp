@@ -373,12 +373,14 @@ public:
 		if (lastArena.getSize() >= 65536) lastArena = Arena(4096);
 		u.arena() = lastArena;
 		counters.bytesInput += VERSION_OVERHEAD;
+		printf("new inputB (V) %f\n",counters.bytesInput.getValue());
 		return u;
 	}
 
 	MutationRef addMutationToMutationLog(Standalone<VerUpdateRef>& mLV, MutationRef const& m) {
 		byteSampleApplyMutation(m, mLV.version);
 		counters.bytesInput += mvccStorageBytes(m);
+		printf("new inputB (M) %f\n",counters.bytesInput.getValue());
 		return mLV.push_back_deep(mLV.arena(), m);
 	}
 
@@ -695,6 +697,7 @@ public:
 	}
 
 	Counter::Value queueSize() {
+		printf("I %f D %f Q %f\n",counters.bytesInput.getValue(),counters.bytesDurable.getValue(),counters.bytesInput.getValue() - counters.bytesDurable.getValue());
 		return counters.bytesInput.getValue() - counters.bytesDurable.getValue();
 	}
 
@@ -1814,6 +1817,7 @@ bool changeDurableVersion( StorageServer* data, Version desiredDurableVersion ) 
 			}
 		}
 		data->counters.bytesDurable += bytesDurable;
+		printf("New durable %f\n",data->counters.bytesDurable);
 	}
 
 	if (EXPENSIVE_VALIDATION) {
