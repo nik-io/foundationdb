@@ -418,11 +418,13 @@ public:
 			int i=0;
 			for(; i<n; i++) {
 				auto io = ctx.queue.top();
-				toStart[i] = io;
-				io->startTime = now();
+				double startT=now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 				if (nullptr == sqe)
 					break;
+
+				toStart[i] = io;
+				io->startTime = startT;
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
