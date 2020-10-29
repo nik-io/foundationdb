@@ -1003,6 +1003,7 @@ private:
                         TraceEvent("IOGetEventsError").GetLastError();
                         throw io_error();
                 }
+			        break;
 			    }
 
 			 }
