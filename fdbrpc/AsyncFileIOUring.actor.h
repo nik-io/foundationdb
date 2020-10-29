@@ -193,7 +193,10 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) poll(ev, &ctx.promise);
+		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
+		    //poll(ev, &ctx.promise);
+		    real_poll();
+		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -963,6 +966,81 @@ private:
 		    ctx.submitted-=got;
 	}
 
+	static inline int throw_iou_error(int rc){
+	    if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+                        TraceEvent("IOGetEventsError").GetLastError();
+                        throw io_error();
+                        return 1;
+                }
+
+	    return 0;
+	}
+
+	ACTOR static void real_poll(){
+	    state int rc=0;
+	    state int r=0;
+	    state io_uring_cqe* cqe;
+		loop {
+		    //Don't even bother with checking if nothing has been submitted
+		    if(!ctx.submitted)goto loop_over;
+		    //1. peek
+		    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
+
+		    if(rc<0){//Noting found
+		        if(!throw_iou_error(rc)){
+		           loop_over:
+                        wait(delay(FLOW_KNOBS->IOURING_POLL_SLEEP,TaskPriority::DiskIOComplete));
+                        continue;
+		        }
+		    }
+		    //Peek has found something. Let's consume all there is
+		    while(1){ //loop as long as there are ready events
+		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+		        r++;
+			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
+			    if(!throw_iou_error(rc)){
+			        if(rc<0)break;
+
+			    }
+			 }
+		    ASSERT(r>0);
+
+			if(IOUring_TRACING)			printf("POLLED  %d events \n",r);
+
+
+			{
+			    ++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+
+			int got;
+		    for(got=0;got<r;got++){
+		        int res = ctx.cqes[got]->res;
+		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
+			    ASSERT(nullptr != iob);
+			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
+				}
+
+				iob->setResult(res);
+		    }
+		    ctx.submitted-=got;
+		}
+	}
+
 
 	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
 		state int rc=0;
@@ -985,6 +1063,7 @@ private:
                     }
                 }
 			}else{
+			    //peek_in_launch true => we wait for the launch to unblock us
 			    Future<int> fi = (p)->getFuture();
 			    if(IOUring_TRACING)printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
 			    int fii = wait(fi);
