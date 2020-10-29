@@ -380,7 +380,7 @@ public:
 	MutationRef addMutationToMutationLog(Standalone<VerUpdateRef>& mLV, MutationRef const& m) {
 		byteSampleApplyMutation(m, mLV.version);
 		counters.bytesInput += mvccStorageBytes(m);
-		printf("new inputB (M) %f\n",counters.bytesInput.getValue());
+		//printf("new inputB (M) %f\n",counters.bytesInput.getValue());
 		return mLV.push_back_deep(mLV.arena(), m);
 	}
 
