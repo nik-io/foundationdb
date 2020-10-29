@@ -973,7 +973,10 @@ private:
 	    state int r=0;
 		loop {
 		    //Don't even bother with checking if nothing has been submitted
-		    if(!ctx.submitted)goto loop_over;
+		    if(!ctx.submitted){
+		        wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
+                continue;
+		    }
 		    //1. peek
 		    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 
@@ -984,8 +987,6 @@ private:
                         TraceEvent("IOGetEventsError").GetLastError();
                         throw io_error();
                 }
-
-		           loop_over:
                         wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
                         continue;
 
