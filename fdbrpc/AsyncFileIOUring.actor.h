@@ -63,7 +63,7 @@ DESCR struct SlowIOUringSubmit {
 };
 
 typedef struct io_uring io_uring_t;
-
+static void consume();
 class AsyncFileIOUring : public IAsyncFile, public ReferenceCounted<AsyncFileIOUring> {
 public:
 
@@ -193,7 +193,7 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		poll(ev, &ctx.promise);
+		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) poll(ev, &ctx.promise);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -389,13 +389,10 @@ public:
 			//Do not have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
-			    if(!to_push){
-			        if(!ctx.peek_in_launch)
-			            return;
-			        else{
-			         goto peek;
-			         }
-			    }
+			if(!to_push){
+			    if(!ctx.peek_in_launch) return;
+			    else goto peek;
+			}
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
@@ -420,11 +417,13 @@ public:
 			int i=0;
 			for(; i<n; i++) {
 				auto io = ctx.queue.top();
-				toStart[i] = io;
-				io->startTime = now();
+				double startT=now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 				if (nullptr == sqe)
 					break;
+
+				toStart[i] = io;
+				io->startTime = startT;
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
@@ -544,19 +543,23 @@ public:
              printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
 #endif
              int p = io_uring_peek_cqe(&ctx.ring, &cqe);
+             if(!ctx.consume_in_launch){
 #if IOUring_TRACING
-             if (p>=0 ){
-                 printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
-                 if( ctx.promise.canBeSet()){
-                 printf("Setting promise to %d\n",sent);
-                 ctx.promise.send(sent++);
+                 if (p>=0 ){
+                     printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
+                     if( ctx.promise.canBeSet()){
+                     printf("Setting promise to %d\n",sent);
+                     ctx.promise.send(sent++);
+                     }
                  }
-             }
 #else
-             if (p>=0 && ctx.promise.canBeSet()){
-                 ctx.promise.send(sent++);
-             }
+                 if (p>=0 && ctx.promise.canBeSet()){
+                     ctx.promise.send(sent++);
+                 }
 #endif
+            }else{
+                 if (p>=0 )consume();
+             }
 		 }
 	}
 
@@ -659,6 +662,7 @@ private:
 
 		struct io_uring_cqe* cqes[1024];
 		bool peek_in_launch=true;
+		bool consume_in_launch=true;
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -896,6 +900,67 @@ private:
 			}
 			iob->setResult(res);
 		}
+	}
+
+
+	static void consume(){
+	    int r=0;
+	    int rc;
+			while(1){ //loop as long as there are ready events
+			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
+			    if(0==rc){
+			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+			        r++;
+			    }else{
+			        break;
+			    }
+			}
+
+
+				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+					TraceEvent("IOGetEventsError").GetLastError();
+					throw io_error();
+				}else{
+				    if(!r){//We did not pull anything.
+				    return;
+				    }
+			    }
+
+
+
+			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
+
+
+			{
+			    ++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+
+			int got;
+		    for(got=0;got<r;got++){
+		        int res = ctx.cqes[got]->res;
+		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
+			    ASSERT(nullptr != iob);
+			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
+				}
+
+				iob->setResult( res);
+		    }
+		    ctx.submitted-=got;
 	}
 
 
