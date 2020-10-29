@@ -49,7 +49,7 @@
 #include "fdbserver/pubsub.h"
 #include "fdbserver/SimulatedCluster.h"
 #include "fdbserver/TesterInterface.actor.h"
-//#include "fdbserver/workloads/workloads.actor.h"
+#include "fdbserver/workloads/workloads.actor.h"
 #include <time.h>
 #include "fdbserver/Status.h"
 #include "fdbrpc/Net2FileSystem.h"
