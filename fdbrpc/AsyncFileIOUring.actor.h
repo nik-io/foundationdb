@@ -563,7 +563,10 @@ public:
             }else{
                  if (p>=0 )consume();
              }
-		 }
+		 }else if(!FLOW_KNOBS->IO_URING_PURE_POLL){
+		    if(ctx.submitted > 0 && p->canBeSet())
+		        p->send(1);
+		}
 	}
 
 
@@ -978,10 +981,18 @@ private:
 	    state int rc=0;
 		loop {
 		     state int r=0;
-		    //Don't even bother with checking if nothing has been submitted
+
 		    if(!ctx.submitted){
-		        wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
-                continue;
+		        if(FLOW_KNOBS->IO_URING_PURE_POLL){
+		            //Don't even bother with checking if nothing has been submitted
+                    wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
+                    continue;
+		        }else{
+		            //Wait for the launch to submit somethin
+		            Future<int> f = p->getFuture();
+		            wait(f);
+		            p->reset();
+		        }
 		    }
 		    //1. peek
 		    rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
@@ -993,8 +1004,9 @@ private:
                         TraceEvent("IOGetEventsError").GetLastError();
                         throw io_error();
                 }
-                        wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
-                        continue;
+		        //Loop over. Stuff has been submitted but it is not ready yet
+                wait(delay(FLOW_KNOBS->IO_URING_POLL_SLEEP,TaskPriority::DiskIOComplete));
+                continue;
 
 		    }
 		    //TODO  Diego: just do peek in the loop. If you found nothing, yield. Else, process
@@ -1049,6 +1061,9 @@ private:
 				iob->setResult(res);
 		    }
 		    ctx.submitted-=got;
+		    if(ctx.submitted ==0 && !FLOW_KNOBS->IO_URING_PURE_POLL ){
+		        p->reset();
+		    }
 		}
 	}
 

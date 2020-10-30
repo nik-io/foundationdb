@@ -100,7 +100,8 @@ FlowKnobs::FlowKnobs(bool randomize, bool isSimulated) {
 	init( MAX_OUTSTANDING,                                      64 );
 	init( MIN_SUBMIT,                                           10 );
 	init( ENABLE_IO_URING,										false);
-	init (IO_URING_POLL_SLEEP,									0.00002); //20 usec
+	init( IO_URING_POLL_SLEEP,									0.00002); //20 usec
+	init( IO_URING_PURE_POLL,									false);
 
 	init( PAGE_WRITE_CHECKSUM_HISTORY,                           0 ); if( randomize && BUGGIFY ) PAGE_WRITE_CHECKSUM_HISTORY = 10000000;
 	init( DISABLE_POSIX_KERNEL_AIO,                              0 );
