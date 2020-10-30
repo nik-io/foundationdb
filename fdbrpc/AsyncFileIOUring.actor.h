@@ -564,7 +564,7 @@ public:
                  if (p>=0 )consume();
              }
 		 }else if(!FLOW_KNOBS->IO_URING_PURE_POLL){
-		    if(ctx.submitted > 0 && promise.canBeSet())
+		    if(ctx.submitted > 0 && ctx.promise.canBeSet())
 		        p->send(1);
 		}
 	}
