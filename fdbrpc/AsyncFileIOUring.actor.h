@@ -990,7 +990,7 @@ private:
 		        }else{
 		            //Wait for the launch to submit somethin
 		            Future<int> f = p->getFuture();
-		            wait(f);
+		            rc=wait(f);
 		            p->reset();
 		        }
 		    }
