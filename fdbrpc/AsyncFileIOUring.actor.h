@@ -991,7 +991,6 @@ private:
 		            //Wait for the launch to submit somethin
 		            Future<int> f = p->getFuture();
 		            int pr=wait(f);
-		            p->reset();
 		        }
 		    }
 		    //1. peek
