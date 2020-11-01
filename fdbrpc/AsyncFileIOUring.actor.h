@@ -193,6 +193,12 @@ public:
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
+
+
+		if(FLOW_KNOB->IO_URING_USE_REACTOR){
+		    io_uring_register_eventfd(&ring, efd);
+		}
+
 		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
 		    //poll(ev, &ctx.promise);
 		    real_poll(ev, &ctx.promise);
@@ -539,7 +545,8 @@ public:
 				}
 		}
 	}
-		if(ctx.peek_in_launch){
+		if(!FLOW_KNOBS->IO_URING_PURE_POLL){
+		    if(ctx.peek_in_launch){
         peek:
              io_uring_cqe* cqe;
 #if IOUring_TRACING
@@ -563,10 +570,13 @@ public:
             }else{
                  if (p>=0 )consume();
              }
-		 }else if(!FLOW_KNOBS->IO_URING_PURE_POLL){
+		 }else if((!FLOW_KNOBS->IO_URING_USE_REACTOR)){
 		    if(ctx.submitted > 0 && ctx.promise.canBeSet())
 		        ctx.promise.send(1);
 		}
+
+		}
+
 	}
 
 
@@ -669,8 +679,8 @@ private:
 
 		struct io_uring_cqe* cqes[1024];
 		struct IOBlock* io_res[1024];
-		bool peek_in_launch=false;
-		bool consume_in_launch=false;
+		const bool peek_in_launch=false;
+		const bool consume_in_launch=false;
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -1063,6 +1073,68 @@ private:
 		    if(ctx.submitted ==0 && !FLOW_KNOBS->IO_URING_PURE_POLL ){
 		        p->reset();
 		    }
+		}
+	}
+
+
+	ACTOR static void reactor_poll( Reference<IEventFD> ev){
+	    state int rc=0;
+		loop {
+		     state int r=0;
+
+		     wait(success(ev->read()));
+
+			wait(delay(0, TaskPriority::DiskIOComplete));
+
+		    while(1){ //loop as long as there are ready events
+		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
+		        if(rc<0){
+			        if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+                        TraceEvent("IOGetEventsError").GetLastError();
+                        throw io_error();
+                    }
+			        break;
+			    }
+		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+		        ASSERT(ctx.io_res[r]!=nullptr);
+		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
+		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+		        r++;
+			 }
+		    ASSERT(r>0);
+
+			if(IOUring_TRACING)			printf("POLLED  %d events \n",r);
+
+
+			{
+			    ++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+
+			int got;
+		    for(got=0;got<r;got++){
+
+		        IOBlock * const iob = ctx.io_res[got];
+		        int res = iob->iou_res;
+			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
+				}
+				iob->setResult(res);
+		    }
+		    ctx.submitted-=got;
 		}
 	}
 
