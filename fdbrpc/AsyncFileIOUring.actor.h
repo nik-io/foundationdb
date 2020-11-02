@@ -234,8 +234,8 @@ public:
 		io->nbytes = length;
 		io->offset = offset;
 
-		//if the queue size is > 0 or submitted is at a max already, then enqueue to avoid out-of-order ooo executions
-		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT && ctx.queue.size()==0 && ctx.submitted < FLOW_KNOBS->MAX_SUBMITTED){
+		//We enqueue if > max events have already been submitted
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_SUBMITTED){
 
 		    double startT=now();
 		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
