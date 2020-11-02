@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 1
+#define IOUring_TRACING 0
 #define AVOID_STALLS 0
 
 enum {
@@ -1085,13 +1085,19 @@ private:
 
 	ACTOR static void reactor_poll( Reference<IEventFD> ev){
 	    state int rc=0;
+
 		loop {
-		     state int r=0;
-            printf("Waiting\n");
-		     wait(success(ev->read()));
-            printf("Waited\n");
-			wait(delay(0, TaskPriority::DiskIOComplete));
-			printf("Rescheduled\n");
+		    state int r=0;
+		    if(IOUring_TRACING){
+                printf("Waiting\n");
+                wait(success(ev->read()));
+                printf("Waited\n");
+                wait(delay(0, TaskPriority::DiskIOComplete));
+                printf("Rescheduled\n");
+			}else{
+		        wait(success(ev->read()));
+                wait(delay(0, TaskPriority::DiskIOComplete));
+		    }
 
 
             state bool loopover=false;
