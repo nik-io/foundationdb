@@ -1106,6 +1106,7 @@ private:
 			        //Apparently, it can still happen that a peek returns EAGAIN even after
 			        //eventfd has been set. So we just loop until we get at least 1 event
 			        if(r) break;
+			        else continue;
 		        }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
