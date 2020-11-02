@@ -195,7 +195,7 @@ public:
 		ctx.evfd = ev->getFD();
 
 
-		if(FLOW_KNOB->IO_URING_USE_REACTOR){
+		if(FLOW_KNOBS->IO_URING_USE_REACTOR){
 		    io_uring_register_eventfd(&ring, efd);
 		}
 
