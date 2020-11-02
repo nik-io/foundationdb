@@ -240,6 +240,7 @@ public:
 		    double startT=now();
 		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 			if (nullptr == sqe){
+			    printf("Enqueueing due to failed get_sqe\n");
 					enqueue(io, "read", this);
             }else{
 				io->startTime = startT;
@@ -270,6 +271,7 @@ public:
 				}
 			}
 		}else{
+		    printf("Enqueueing due to max outstanding\n");
 		    enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
