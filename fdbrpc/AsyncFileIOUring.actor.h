@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 #define AVOID_STALLS 0
 
 enum {
@@ -1089,9 +1089,11 @@ private:
 		     state int r=0;
             printf("Waiting\n");
 		     wait(success(ev->read()));
-        printf("Waited\n");
+            printf("Waited\n");
 			wait(delay(0, TaskPriority::DiskIOComplete));
 			printf("Rescheduled\n");
+
+
 
 		    while(1){ //loop as long as there are ready events
 		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
@@ -1101,7 +1103,10 @@ private:
                         TraceEvent("IOGetEventsError").GetLastError();
                         throw io_error();
                     }
-			        break;
+			        //Apparently, it can still happen that a peek returns EAGAIN even after
+			        //eventfd has been set. So we just loop until we get at least 1 event
+			        if(r) break;
+			        else continue;
 			    }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
