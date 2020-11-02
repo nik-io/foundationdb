@@ -235,7 +235,7 @@ public:
 		io->offset = offset;
 
 		//We enqueue if > max events have already been pushed to the ring
-		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.outstanding < FLOW_KNOBS->MAX_OUTSTANDING){
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && (ctx.outstanding + ctx.submitted) < FLOW_KNOBS->MAX_OUTSTANDING){
 
 		    double startT=now();
 		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
