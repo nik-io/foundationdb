@@ -1140,7 +1140,6 @@ private:
 		    }
 
 
-            state bool loopover=false;
 		    loop{ //loop as long as there are ready events
 		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 		        if(rc<0){
@@ -1151,11 +1150,11 @@ private:
                     }
 			        //Apparently, it can still happen that a peek returns EAGAIN even after
 			        //eventfd has been set. So we just loop until we get at least 1 event
-			        loopover=true;
 			        break;
 		        }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
+		        printf("Extractd io %p\n",ctx.io_res[r]);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
