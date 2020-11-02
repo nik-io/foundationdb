@@ -173,6 +173,9 @@ public:
 	}
 
 	static void init( Reference<IEventFD> ev, double ioTimeout ) {
+
+	    assert(! (FLOW_KNOBS->IO_URING_PURE_POLL && FLOW_KNOBS->IO_URING_USE_REACTOR));
+
 		ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
 		if( !g_network->isSimulated() ) {
 			ctx.countAIOSubmit.init(LiteralStringRef("AsyncFile.CountAIOSubmit"));
