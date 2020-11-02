@@ -1120,6 +1120,11 @@ private:
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
 			 }
+			 /*
+			  * Sometimes, the actor is awaken w/o a proper event to consume
+			  * In this case, just go to sleep again.
+			  */
+
 			 if(r){
 
                 if(IOUring_TRACING)			printf("REACTOR POLLED  %d events \n",r);

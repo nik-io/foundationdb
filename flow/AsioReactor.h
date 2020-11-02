@@ -60,11 +60,9 @@ private:
 
 		static void handle_read( Promise<int64_t> p, int64_t* pVal, const boost::system::error_code& ec, std::size_t bytes_transferred ) {
 			if (ec) {
-				printf("Handle read not triggering promise\n");
 				return; // Presumably, the EventFD was destroyed?
 			}
 			ASSERT( bytes_transferred == sizeof(*pVal) );
-			printf("Handle read triggering promise with value %lu\n",*pVal);
 			p.send(*pVal);
 		}
 
