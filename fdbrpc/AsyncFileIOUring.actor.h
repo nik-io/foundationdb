@@ -1158,6 +1158,10 @@ private:
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
+		        if(r == FLOW_KNOBS->MAX_OUTSTANDING){
+		            //break so that we do not try to read and write in an invalid buffer
+		            break;
+		        }
 			 }
 			 /*
 			  * Sometimes, the actor is awaken w/o a proper event to consume
@@ -1246,6 +1250,10 @@ private:
 			            wait(delay(0,TaskPriority::DiskIOComplete ));
 			        }
 			        r++;
+			        if(r == FLOW_KNOBS->MAX_OUTSTANDING){
+		                //break so that we do not try to read and write in an invalid buffer
+		                break;
+		            }
 			    }else{
 			        break;
 			    }
