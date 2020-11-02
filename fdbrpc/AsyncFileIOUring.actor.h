@@ -1114,40 +1114,40 @@ private:
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
 			 }
-			 if(loopover)continue;
-		    ASSERT(r>0);
+			 if(r){
 
-			if(IOUring_TRACING)			printf("REACTOR POLLED  %d events \n",r);
+                if(IOUring_TRACING)			printf("REACTOR POLLED  %d events \n",r);
 
 
-			{
-			    ++ctx.countAIOCollect;
-				double t = timer_monotonic();
-				double elapsed = t - ctx.ioStallBegin;
-				ctx.ioStallBegin = t;
-				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
-			}
+                {
+                    ++ctx.countAIOCollect;
+                    double t = timer_monotonic();
+                    double elapsed = t - ctx.ioStallBegin;
+                    ctx.ioStallBegin = t;
+                    if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+                }
 
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				double currentTime = now();
-				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-					ctx.removeFromRequestList(ctx.submittedRequestList);
-				}
-			}
-
-			int got;
-		    for(got=0;got<r;got++){
-
-		        IOBlock * const iob = ctx.io_res[got];
-		        int res = iob->iou_res;
-			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
                 if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-					ctx.removeFromRequestList(iob);
-				}
-				iob->setResult(res);
+                    double currentTime = now();
+                    while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+                        ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+                        ctx.removeFromRequestList(ctx.submittedRequestList);
+                    }
+                }
+
+                int got;
+                for(got=0;got<r;got++){
+
+                    IOBlock * const iob = ctx.io_res[got];
+                    int res = iob->iou_res;
+                    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+                    if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+                        ctx.removeFromRequestList(iob);
+                    }
+                    iob->setResult(res);
+                }
+                ctx.submitted-=got;
 		    }
-		    ctx.submitted-=got;
 		}
 	}
 
