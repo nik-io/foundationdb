@@ -1095,7 +1095,7 @@ private:
 
 
 
-		    while(1){ //loop as long as there are ready events
+		    loop{ //loop as long as there are ready events
 		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 		        if(rc<0){
 			        if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
@@ -1106,8 +1106,7 @@ private:
 			        //Apparently, it can still happen that a peek returns EAGAIN even after
 			        //eventfd has been set. So we just loop until we get at least 1 event
 			        if(r) break;
-			        else continue;
-			    }
+		        }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
