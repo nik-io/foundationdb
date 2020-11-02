@@ -199,9 +199,13 @@ public:
 		    io_uring_register_eventfd(&ctx.ring, ctx.evfd);
 		}
 
-		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
-		    //poll(ev, &ctx.promise);
-		    real_poll(ev, &ctx.promise);
+		if(!FLOW_KNOBS->IO_URING_USE_REACTOR){
+            if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
+                //poll(ev, &ctx.promise);
+                real_poll(ev, &ctx.promise);
+            }
+		}else{
+		    reactor_poll(ev);
 		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
