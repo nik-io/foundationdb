@@ -234,14 +234,50 @@ public:
 		io->nbytes = length;
 		io->offset = offset;
 
-		enqueue(io, "read", this);
-		Future<int> result = io->result.getFuture();
+		//if the queue size is > 0 or submitted is at a max already, then enqueue to avoid out-of-order ooo executions
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT && ctx.queue.size()==0 && ctx.submitted < FLOW_KNOBS->MAX_SUBMITTED){
 
+		    double startT=now();
+		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
+			if (nullptr == sqe){
+					enqueue(io, "read", this);
+            }else{
+				io->startTime = startT;
+                struct iovec *iov= &io->iovec;
+                iov->iov_base=io->buf;
+                iov->iov_len=io->nbytes;
+                io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+			    io_uring_sqe_set_data(sqe, io);
+
+				if (io->owner->lastFileSize != io->owner->nextFileSize) {
+					++ctx.countPreSubmitTruncate;
+					int64_t truncateSize = io->owner->nextFileSize - io->owner->lastFileSize;
+					ASSERT(truncateSize > 0);
+					ctx.preSubmitTruncateBytes += truncateSize;
+					largestTruncate = std::max(largestTruncate, truncateSize);
+					io->owner->truncate(io->owner->nextFileSize);
+				}
+
+				int rc = io_uring_submit(&ctx.ring);
+				if(rc<=0){
+				    //For now, just throw an error
+				    //In theory, the event is in the ring. We just have to enforce
+				    //That at some point another op or the launch will push it
+				    //(Increase outstanding and then in launch issue a submit if there's stuff to push
+				    throw io_error();
+				}else{
+				    ctx.submitted++;
+				}
+			}
+		}else{
+		    enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
+		}
+    Future<int> result = io->result.getFuture();
+	return result;
 
-		return result;
 	}
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
@@ -535,6 +571,8 @@ public:
 					// Other errors are assumed to represent failure to issue the first I/O in the list
 					toStart[0]->setResult( errno ? -errno : -1000000 );
 					rc = 1;
+					//TODO: Diego. If we get error, we should cqe_see the event for which we set
+					//The result?
 				}
 			} else{
 			    //We want that outstanding represents the number of events NOT pushed to the ring
