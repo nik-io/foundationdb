@@ -189,7 +189,6 @@ public:
 #if IOUring_TRACING
 		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), ctx.queue.size());
 #endif
-		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
 			throw io_error();
@@ -1088,10 +1087,11 @@ private:
 	    state int rc=0;
 		loop {
 		     state int r=0;
-
+            printf("Waiting\n");
 		     wait(success(ev->read()));
-
+        printf("Waited\n");
 			wait(delay(0, TaskPriority::DiskIOComplete));
+			printf("Rescheduled\n");
 
 		    while(1){ //loop as long as there are ready events
 		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
