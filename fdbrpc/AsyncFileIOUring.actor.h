@@ -196,7 +196,7 @@ public:
 
 
 		if(FLOW_KNOBS->IO_URING_USE_REACTOR){
-		    io_uring_register_eventfd(&ring, efd);
+		    io_uring_register_eventfd(&ctx.ring, ctx.evfd);
 		}
 
 		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) {
