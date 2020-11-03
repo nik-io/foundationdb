@@ -241,7 +241,7 @@ public:
 		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 			if (nullptr == sqe){
 			    printf("Enqueueing due to failed get_sqe\n");
-					enqueue(io, "read", this);
+				enqueue(io, "read", this);
             }else{
 				io->startTime = startT;
                 struct iovec *iov= &io->iovec;
@@ -267,6 +267,9 @@ public:
 				    //(Increase outstanding and then in launch issue a submit if there's stuff to push
 				    throw io_error();
 				}else{
+#if IOUring_TRACING
+		printf("Directly submitted read on io %p\n", io);
+#endif
 				    ctx.submitted++;
 				}
 			}
@@ -452,9 +455,6 @@ public:
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
-			//we only push new stuff from the ctx. Outstanding are alrady in the ring
-			//(A workaround could be possibly cqe-see t
-			//he outstanding and re-enqueue them, but I guess it costs too much
 
 			//These are the new ones we have to put in the ring
 			//outstanding should always be < max, so n should benon-negative
@@ -835,7 +835,7 @@ private:
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
 #if IOUring_TRACING
 	    printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
-			this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 #endif
 	    if(io->opcode !=UIO_CMD_FSYNC){
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
@@ -1154,6 +1154,7 @@ private:
 		        }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
+		        printf("Processing io  %d %p\n",r,ctx.io_res[r]);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
