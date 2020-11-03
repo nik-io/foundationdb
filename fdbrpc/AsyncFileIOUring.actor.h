@@ -250,13 +250,13 @@ public:
                 io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 			    io_uring_sqe_set_data(sqe, io);
 
-				if (io->owner->lastFileSize != io->owner->nextFileSize) {
+				if (this->lastFileSize != this->nextFileSize) {
 					++ctx.countPreSubmitTruncate;
-					int64_t truncateSize = io->owner->nextFileSize - io->owner->lastFileSize;
+					int64_t truncateSize = this->nextFileSize - this->lastFileSize;
 					ASSERT(truncateSize > 0);
 					ctx.preSubmitTruncateBytes += truncateSize;
 					int64_t largestTruncate = std::max(largestTruncate, truncateSize);
-					io->owner->truncate(io->owner->nextFileSize);
+					this->truncate(io->owner->nextFileSize);
 				}
 
 				int rc = io_uring_submit(&ctx.ring);
