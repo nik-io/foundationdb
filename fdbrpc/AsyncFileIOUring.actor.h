@@ -258,7 +258,7 @@ public:
                 IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
                 io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
-                io->owner = Reference<AsyncFileIOUring>::addRef(owner);
+                io->owner = Reference<AsyncFileIOUring>::addRef(this);
 
 				if (this->lastFileSize != this->nextFileSize) {
 					++ctx.countPreSubmitTruncate;
