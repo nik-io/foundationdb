@@ -250,6 +250,16 @@ public:
                 io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 			    io_uring_sqe_set_data(sqe, io);
 
+			    if(io->opcode !=UIO_CMD_FSYNC){
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
+			    }
+                IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
+
+                io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
+                io->owner = Reference<AsyncFileIOUring>::addRef(owner);
+
 				if (this->lastFileSize != this->nextFileSize) {
 					++ctx.countPreSubmitTruncate;
 					int64_t truncateSize = this->nextFileSize - this->lastFileSize;
@@ -265,6 +275,7 @@ public:
 				    //In theory, the event is in the ring. We just have to enforce
 				    //That at some point another op or the launch will push it
 				    //(Increase outstanding and then in launch issue a submit if there's stuff to push
+				    //(Probably, add ref to owner
 				    throw io_error();
 				}else{
 #if IOUring_TRACING
