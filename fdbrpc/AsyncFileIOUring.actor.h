@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 #define AVOID_STALLS 0
 
 enum {
@@ -1134,82 +1134,83 @@ private:
 
 
 	ACTOR static void reactor_poll( Reference<IEventFD> ev){
-	    state int rc=0;
-
+		state int rc=0;
 		loop {
-		    state int r=0;
-		    if(IOUring_TRACING){
-                printf("Waiting\n");
-                wait(success(ev->read()));
-                printf("Waited\n");
-                wait(delay(0, TaskPriority::DiskIOComplete));
-                printf("Rescheduled\n");
+			state int r=0;
+			if(IOUring_TRACING){
+				printf("Waiting\n");
+				wait(success(ev->read()));
+				printf("Waited\n");
+				wait(delay(0, TaskPriority::DiskIOComplete));
+				printf("Rescheduled\n");
 			}else{
-		        wait(success(ev->read()));
-                wait(delay(0, TaskPriority::DiskIOComplete));
-		    }
+				wait(success(ev->read()));
+				wait(delay(0, TaskPriority::DiskIOComplete));
+			}
+
+			loop{ //loop as long as there are ready events. Grab at least one
+				printf("Peeking r %d\n",r);
+				rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
+				if(rc<0){
+					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+						TraceEvent("IOGetEventsError").GetLastError();
+						throw io_error();
+					}
+					if(r>0) break; //if r==0 we have not consumed the event that has woken us up, so we loop
+					printf("Looping after waited. submitted %d rc %d r %d\n",ctx.submitted,rc,r);
+					wait(delay(0, TaskPriority::DiskIOComplete));
+					continue;
+				}
+				ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+				ASSERT(ctx.io_res[r]!=nullptr);
+				ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
+				io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+				r++;
+				printf("Peeked %d\n",r);
+				if(r == FLOW_KNOBS->MAX_OUTSTANDING){
+					//break so that we do not try to read and write in an invalid buffer
+					break;
+				}
+			}
+			/*
+			 * We have enforced we do consume at least one event, so r is > 0
+			 */
+
+			if(r){
+
+				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
 
 
-		    loop{ //loop as long as there are ready events
-		        rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
-		        if(rc<0){
-			        if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
-                        printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-                        TraceEvent("IOGetEventsError").GetLastError();
-                        throw io_error();
-                    }
-			        //Apparently, it can still happen that a peek returns EAGAIN even after
-			        //eventfd has been set. So we just loop until we get at least 1 event
-			        continue;
-		        }
-		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
-		        ASSERT(ctx.io_res[r]!=nullptr);
-		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
-		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
-		        r++;
-		        if(r == FLOW_KNOBS->MAX_OUTSTANDING){
-		            //break so that we do not try to read and write in an invalid buffer
-		            break;
-		        }
-			 }
-			 /*
-			  * We have enforced we do consume at least one event, so r is > 0
-			  */
+				{
+					++ctx.countAIOCollect;
+					double t = timer_monotonic();
+					double elapsed = t - ctx.ioStallBegin;
+					ctx.ioStallBegin = t;
+					if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				}
 
-			 if(r){
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					double currentTime = now();
+					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+						ctx.removeFromRequestList(ctx.submittedRequestList);
+					}
+				}
 
-                if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+				int got;
+				for(got=0;got<r;got++){
 
-
-                {
-                    ++ctx.countAIOCollect;
-                    double t = timer_monotonic();
-                    double elapsed = t - ctx.ioStallBegin;
-                    ctx.ioStallBegin = t;
-                    if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
-                }
-
-                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-                    double currentTime = now();
-                    while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-                        ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-                        ctx.removeFromRequestList(ctx.submittedRequestList);
-                    }
-                }
-
-                int got;
-                for(got=0;got<r;got++){
-
-                    IOBlock * const iob = ctx.io_res[got];
-                    int res = iob->iou_res;
-                    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-                    if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-                        ctx.removeFromRequestList(iob);
-                    }
-                    iob->setResult(res);
-                }
-                ctx.submitted-=got;
-		    }
+					IOBlock * const iob = ctx.io_res[got];
+					int res = iob->iou_res;
+					IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+						ctx.removeFromRequestList(iob);
+					}
+					iob->setResult(res);
+				}
+				ctx.submitted-=got;
+			}
 		}
 	}
 
@@ -1222,62 +1223,62 @@ private:
 			//If there is nothing submitted, we don't have to poll
 			//yield for X time and roll over
 			if(!ctx.peek_in_launch){
-			   if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
+				if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
 
-                if(!ctx.submitted){
-                    Future<int> fi = (p)->getFuture();
-                    if(IOUring_TRACING){
-                        printf("Waiting on future from promise %p\n",p);
-                        int fii = wait(fi);
-                        printf("Waited and got %d\n",fii);
-                    }
-                    else{
-                        int fii = wait(fi);
-                    }
-                }
+				if(!ctx.submitted){
+					Future<int> fi = (p)->getFuture();
+					if(IOUring_TRACING){
+						printf("Waiting on future from promise %p\n",p);
+						int fii = wait(fi);
+						printf("Waited and got %d\n",fii);
+					}
+					else{
+						int fii = wait(fi);
+					}
+				}
 			}else{
-			    //peek_in_launch true => we wait for the launch to unblock us
-			    Future<int> fi = (p)->getFuture();
-			    if(IOUring_TRACING)printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
-			    int fii = wait(fi);
-			    if(IOUring_TRACING)printf("Waited and got %d\n",fii);
-			    p->reset();
-			    if(IOUring_TRACING)printf("promise reset. canbeset: %d\n",p->canBeSet());
-			    wait(delay(0,TaskPriority::DiskIOComplete));
+				//peek_in_launch true => we wait for the launch to unblock us
+				Future<int> fi = (p)->getFuture();
+				if(IOUring_TRACING)printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
+				int fii = wait(fi);
+				if(IOUring_TRACING)printf("Waited and got %d\n",fii);
+				p->reset();
+				if(IOUring_TRACING)printf("promise reset. canbeset: %d\n",p->canBeSet());
+				wait(delay(0,TaskPriority::DiskIOComplete));
 			}
 			//Submitted > 0
 			state int r=0;
 			while(1){ //loop as long as there are ready events
-			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
-			    if(0==rc){
-			        ctx.io_res[r]= static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
-			        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
-			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
-			        if(r==0 && !ctx.peek_in_launch){
-			            //yield one time only, when stuff is ready (as in KAIO)
-			            wait(delay(0,TaskPriority::DiskIOComplete ));
-			        }
-			        r++;
-			        if(r == FLOW_KNOBS->MAX_OUTSTANDING){
-		                //break so that we do not try to read and write in an invalid buffer
-		                break;
-		            }
-			    }else{
-			        break;
-			    }
+				rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
+				if(0==rc){
+					ctx.io_res[r]= static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
+					ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
+					io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+					if(r==0 && !ctx.peek_in_launch){
+						//yield one time only, when stuff is ready (as in KAIO)
+						wait(delay(0,TaskPriority::DiskIOComplete ));
+					}
+					r++;
+					if(r == FLOW_KNOBS->MAX_OUTSTANDING){
+						//break so that we do not try to read and write in an invalid buffer
+						break;
+					}
+				}else{
+					break;
+				}
 			}
 
 
-				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-					TraceEvent("IOGetEventsError").GetLastError();
-					throw io_error();
-				}else{
-				    if(!r){//We did not pull anything.
-				    wait(delay(0.1,TaskPriority::DiskIOComplete));
-				    continue;
-				    }
-			    }
+			if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+				printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+				TraceEvent("IOGetEventsError").GetLastError();
+				throw io_error();
+			}else{
+				if(!r){//We did not pull anything.
+					wait(delay(0.1,TaskPriority::DiskIOComplete));
+					continue;
+				}
+			}
 
 
 
@@ -1285,7 +1286,7 @@ private:
 
 
 			{
-			    ++ctx.countAIOCollect;
+				++ctx.countAIOCollect;
 				double t = timer_monotonic();
 				double elapsed = t - ctx.ioStallBegin;
 				ctx.ioStallBegin = t;
@@ -1301,18 +1302,18 @@ private:
 			}
 
 			int got;
-		    for(got=0;got<r;got++){
-		        IOBlock * const iob = ctx.io_res[got];
-		        int res = iob->iou_res;
-			    ASSERT(nullptr != iob);
-			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+			for(got=0;got<r;got++){
+				IOBlock * const iob = ctx.io_res[got];
+				int res = iob->iou_res;
+				ASSERT(nullptr != iob);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.removeFromRequestList(iob);
 				}
 
 				iob->setResult( res);
-		    }
-		    ctx.submitted-=got;
+			}
+			ctx.submitted-=got;
 		}
 	}
 };
