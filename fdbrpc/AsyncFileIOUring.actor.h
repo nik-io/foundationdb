@@ -285,7 +285,6 @@ public:
 				}
 			}
 		}else{
-		    printf("Enqueueing due to max outstanding\n");
 		    enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
@@ -1161,11 +1160,10 @@ private:
                     }
 			        //Apparently, it can still happen that a peek returns EAGAIN even after
 			        //eventfd has been set. So we just loop until we get at least 1 event
-			        break;
+			        continue;
 		        }
 		        ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 		        ASSERT(ctx.io_res[r]!=nullptr);
-		        printf("Processing io  %d %p\n",r,ctx.io_res[r]);
 		        ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 		        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 		        r++;
@@ -1175,13 +1173,12 @@ private:
 		        }
 			 }
 			 /*
-			  * Sometimes, the actor is awaken w/o a proper event to consume
-			  * In this case, just go to sleep again.
+			  * We have enforced we do consume at least one event, so r is > 0
 			  */
 
 			 if(r){
 
-                if(IOUring_TRACING)			printf("REACTOR POLLED  %d events \n",r);
+                if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
 
 
                 {
