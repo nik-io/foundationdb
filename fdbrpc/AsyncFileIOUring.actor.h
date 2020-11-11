@@ -1157,10 +1157,15 @@ private:
 						TraceEvent("IOGetEventsError").GetLastError();
 						throw io_error();
 					}
-					if(r>0) break; //if r==0 we have not consumed the event that has woken us up, so we loop
-					printf("Looping after waited. submitted %d rc %d r %d\n",ctx.submitted,rc,r);
-					wait(delay(0, TaskPriority::DiskIOComplete));
-					continue;
+					/*
+					 * eventfd never wakes up up if nothing can be consumed
+					 * i.e. --> we wake up implies we can peek successfully
+					 * It can happen, however, that we wake up because X events are ready
+					 * but we consume X+Y events, b/c Y events wre completed in the meantime
+					 * Then, eventfd will still notify us of the extra Y, but we have already
+					 * consumed them
+					 */
+					break;
 				}
 				ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
 				ASSERT(ctx.io_res[r]!=nullptr);
@@ -1174,7 +1179,7 @@ private:
 				}
 			}
 			/*
-			 * We have enforced we do consume at least one event, so r is > 0
+			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
 			 */
 
 			if(r){
