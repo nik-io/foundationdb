@@ -1230,8 +1230,7 @@ private:
 			    to_consume=ev_r;
 				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
-			rc=io_uring_peek_batch_cqe(&ctx.ring,&ctx.cqes,(unsigned)to_consume);
-			ASSERT(rc==to_consume);
+            rc=io_uring_peek_batch_cqe(&ctx.ring,(io_uring_cqe**)&ctx.cqes,(unsigned)to_consume);			ASSERT(rc==to_consume);
 			int r;
 			for(r=0;r<to_consume;r++){
 			    io_uring_cqe* cqe = ctx.cqes[r];
