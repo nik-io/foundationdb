@@ -1135,21 +1135,25 @@ private:
 
 	ACTOR static void reactor_poll( Reference<IEventFD> ev){
 		state int rc=0;
+		state io_uring_cqe* cqe;
+		state int64_t to_consume;
 		loop {
 			state int r=0;
 			if(IOUring_TRACING){
 				printf("Waiting\n");
-				wait(success(ev->read()));
-				printf("Waited\n");
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				printf("Waited %lu\n",ev_r);
 				wait(delay(0, TaskPriority::DiskIOComplete));
 				printf("Rescheduled\n");
 			}else{
-				wait(success(ev->read()));
+			    int64_t ev_r = wait( ev->read());
+			    to_consume=ev_r;
 				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
 
 			loop{ //loop as long as there are ready events. Grab at least one
-				rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
+				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 				if(rc<0){
 					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
 						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
@@ -1166,15 +1170,17 @@ private:
 					 */
 					break;
 				}
-				ctx.io_res[r]=static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[r]));
-				ASSERT(ctx.io_res[r]!=nullptr);
-				ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
-				io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
+				//We've got an event. Let's consume it
+
+				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+				ASSERT(iob!=nullptr);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+						ctx.removeFromRequestList(iob);
+					}
+					iob->setResult(cqe->res);
+				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
-				if(r == FLOW_KNOBS->MAX_OUTSTANDING){
-					//break so that we do not try to read and write in an invalid buffer
-					break;
-				}
 			}
 			/*
 			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
@@ -1200,19 +1206,7 @@ private:
 						ctx.removeFromRequestList(ctx.submittedRequestList);
 					}
 				}
-
-				int got;
-				for(got=0;got<r;got++){
-
-					IOBlock * const iob = ctx.io_res[got];
-					int res = iob->iou_res;
-					IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-						ctx.removeFromRequestList(iob);
-					}
-					iob->setResult(res);
-				}
-				ctx.submitted-=got;
+				ctx.submitted-=r;
 			}
 		}
 	}
