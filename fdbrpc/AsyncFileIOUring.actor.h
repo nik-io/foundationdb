@@ -1135,10 +1135,8 @@ private:
 
 	ACTOR static void reactor_poll( Reference<IEventFD> ev){
 		state int rc=0;
-		state io_uring_cqe* cqe;
 		state int64_t to_consume;
 		loop {
-			state int r=0;
 			if(IOUring_TRACING){
 				printf("Waiting\n");
 				int64_t ev_r = wait( ev->read());
@@ -1151,28 +1149,12 @@ private:
 			    to_consume=ev_r;
 				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
-
-			loop{ //loop as long as there are ready events. Grab at least one
-				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
-				if(rc<0){
-					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
-						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-						TraceEvent("IOGetEventsError").GetLastError();
-						throw io_error();
-					}
-					/*
-					 * eventfd never wakes up up if nothing can be consumed
-					 * i.e. --> we wake up implies we can peek successfully
-					 * It can happen, however, that we wake up because X events are ready
-					 * but we consume X+Y events, b/c Y events wre completed in the meantime
-					 * Then, eventfd will still notify us of the extra Y, but we have already
-					 * consumed them
-					 */
-					break;
-				}
-				//We've got an event. Let's consume it
-
-				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			rc=io_uring_peek_batch_cqe(&ctx.ring,&ctx.cqes,(unsigned)to_consume);
+			ASSERT(rc==to_consume);
+			int r;
+			for(r=0;r<to_consume;r++){
+			    io_uring_cqe* cqe = ctx.cqes[r];
+			    IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 				ASSERT(iob!=nullptr);
 				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
 					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
@@ -1180,15 +1162,9 @@ private:
 					}
 					iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
-				r++;
 			}
-			/*
-			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
-			 */
 
-			if(r){
-
-				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+			if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
 
 
 				{
@@ -1207,7 +1183,6 @@ private:
 					}
 				}
 				ctx.submitted-=r;
-			}
 		}
 	}
 
