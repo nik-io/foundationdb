@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 1
+#define IOUring_TRACING 0
 #define AVOID_STALLS 0
 
 enum {
@@ -1149,7 +1149,6 @@ private:
 			}
 
 			loop{ //loop as long as there are ready events. Grab at least one
-				printf("Peeking r %d\n",r);
 				rc = io_uring_peek_cqe(&ctx.ring, &ctx.cqes[r]);
 				if(rc<0){
 					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
@@ -1172,7 +1171,6 @@ private:
 				ctx.io_res[r]->iou_res = ctx.cqes[r]->res;
 				io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
 				r++;
-				printf("Peeked %d\n",r);
 				if(r == FLOW_KNOBS->MAX_OUTSTANDING){
 					//break so that we do not try to read and write in an invalid buffer
 					break;
