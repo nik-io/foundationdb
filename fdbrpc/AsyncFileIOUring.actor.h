@@ -207,7 +207,11 @@ public:
                 real_poll(ev, &ctx.promise);
             }
 		}else{
-		    reactor_poll(ev);
+		    if(FLOW_KNOBS->IO_URING_REACTOR_BATCH){
+		        reactor_poll_batch(ev);
+		        }else{
+		        reactor_poll_loop(ev);
+		    }
 		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
@@ -1132,8 +1136,85 @@ private:
 		}
 	}
 
+	ACTOR static void reactor_poll_loop( Reference<IEventFD> ev){
+		state int rc=0;
+		state io_uring_cqe* cqe;
+		state int64_t to_consume;
+		loop {
+			state int r=0;
+			if(IOUring_TRACING){
+				printf("Waiting\n");
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				printf("Waited %lu\n",ev_r);
+				wait(delay(0, TaskPriority::DiskIOComplete));
+				printf("Rescheduled\n");
+			}else{
+			    int64_t ev_r = wait( ev->read());
+			    to_consume=ev_r;
+				wait(delay(0, TaskPriority::DiskIOComplete));
+			}
 
-	ACTOR static void reactor_poll( Reference<IEventFD> ev){
+			loop{ //loop as long as there are ready events. Grab at least one
+				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+				if(rc<0){
+					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+						TraceEvent("IOGetEventsError").GetLastError();
+						throw io_error();
+					}
+					/*
+					 * eventfd never wakes up up if nothing can be consumed
+					 * i.e. --> we wake up implies we can peek successfully
+					 * It can happen, however, that we wake up because X events are ready
+					 * but we consume X+Y events, b/c Y events wre completed in the meantime
+					 * Then, eventfd will still notify us of the extra Y, but we have already
+					 * consumed them
+					 */
+					break;
+				}
+				//We've got an event. Let's consume it
+
+				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+				ASSERT(iob!=nullptr);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+						ctx.removeFromRequestList(iob);
+					}
+					iob->setResult(cqe->res);
+				io_uring_cqe_seen(&ctx.ring, cqe);
+				r++;
+			}
+			/*
+			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
+			 */
+
+			if(r){
+
+				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+
+
+				{
+					++ctx.countAIOCollect;
+					double t = timer_monotonic();
+					double elapsed = t - ctx.ioStallBegin;
+					ctx.ioStallBegin = t;
+					if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				}
+
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					double currentTime = now();
+					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+						ctx.removeFromRequestList(ctx.submittedRequestList);
+					}
+				}
+				ctx.submitted-=r;
+			}
+		}
+	}
+
+	ACTOR static void reactor_poll_batch( Reference<IEventFD> ev){
 		state int rc=0;
 		state int64_t to_consume;
 		loop {

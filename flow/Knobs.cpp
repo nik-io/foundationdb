@@ -104,6 +104,7 @@ FlowKnobs::FlowKnobs(bool randomize, bool isSimulated) {
 	init( IO_URING_PURE_POLL,									false);
 	init( IO_URING_USE_REACTOR,									false);
 	init (IO_URING_DIRECT_SUBMIT,								false);
+	init (IO_URING_REACTOR_BATCH,								false);
 
 	init( PAGE_WRITE_CHECKSUM_HISTORY,                           0 ); if( randomize && BUGGIFY ) PAGE_WRITE_CHECKSUM_HISTORY = 10000000;
 	init( DISABLE_POSIX_KERNEL_AIO,                              0 );
