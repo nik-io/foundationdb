@@ -120,6 +120,8 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	//AsyncFileKAIO
 	init( MAX_OUTSTANDING,                                      64 );
 	init( MIN_SUBMIT,                                           10 );
+	init( ENABLE_IO_URING,										false);
+	init (IO_URING_DIRECT_SUBMIT,								false);
 
 	init( PAGE_WRITE_CHECKSUM_HISTORY,                           0 ); if( randomize && BUGGIFY ) PAGE_WRITE_CHECKSUM_HISTORY = 10000000;
 	init( DISABLE_POSIX_KERNEL_AIO,                              0 );
@@ -224,8 +226,9 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	init( HEALTH_MONITOR_CLIENT_REQUEST_INTERVAL_SECS,          30 );
 	init( HEALTH_MONITOR_CONNECTION_MAX_CLOSED,                  5 );
 
-        init( ENABLE_IO_URING,					  false);
-	init( USE_IO_URING_FOR_CACHED,				  false);
+	init( ENABLE_IO_URING,					                  false); //Use io_uring instead of kaio
+	init( USE_IO_URING_FOR_CACHED,				              false); //Use uncached io_uring instead of cached
+	init (IO_URING_DIRECT_SUBMIT,							  false); //Bypass the op queue and dispatch read ops to the io_uring ring directly
 }
 // clang-format on
 

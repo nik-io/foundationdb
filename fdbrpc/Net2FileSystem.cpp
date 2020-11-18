@@ -56,7 +56,7 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 	if (!(flags & IAsyncFile::OPEN_UNCACHED)) {
 		if ((!FLOW_KNOBS->ENABLE_IO_URING) || !FLOW_KNOBS->USE_IO_URING_FOR_CACHED)
 			return AsyncFileCached::open(filename, flags, mode);
-		return AsyncFileIOUring::open(filename, flags, mode); 
+		return AsyncFileIOUring::open(filename, flags, mode);
 	}
 	Future<Reference<IAsyncFile>> f;
 #ifdef __linux__
@@ -71,7 +71,6 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 			f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
 		else
 			f =  AsyncFileIOUring::open(filename, flags, mode); // TODO: make this Knobable
-	    //f = AsyncFileKAIO::open(filename, flags, mode, nullptr);
 	else
 #endif
 	f = Net2AsyncFile::open(filename, flags, mode, static_cast<boost::asio::io_service*> ((void*) g_network->global(INetwork::enASIOService)));

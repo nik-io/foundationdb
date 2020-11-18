@@ -186,14 +186,17 @@ public:
 #if IOUring_TRACING
 		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), ctx.queue.size());
 #endif
-		//int rc = io_setup( FLOW_KNOBS->MAX_OUTSTANDING, &ctx.iocx );
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
 			throw io_error();
 		}
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-		if(!(ctx.peek_in_launch && ctx.consume_in_launch)) poll(ev, &ctx.promise);
+
+		if(FLOW_KNOBS->IO_URING_USE_REACTOR){
+		    io_uring_register_eventfd(&ctx.ring, ctx.evfd);
+		}
+		poll(ev);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -219,14 +222,65 @@ public:
 		io->nbytes = length;
 		io->offset = offset;
 
-		enqueue(io, "read", this);
-		Future<int> result = io->result.getFuture();
+		//We enqueue if > max events have already been pushed to the ring
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && (ctx.outstanding + ctx.submitted) < FLOW_KNOBS->MAX_OUTSTANDING){
 
+		    double startT=now();
+		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
+			if (nullptr == sqe){
+			    printf("Enqueueing due to failed get_sqe\n");
+				enqueue(io, "read", this);
+            }else{
+				io->startTime = startT;
+                struct iovec *iov= &io->iovec;
+                iov->iov_base=io->buf;
+                iov->iov_len=io->nbytes;
+                io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+			    io_uring_sqe_set_data(sqe, io);
+
+
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
+
+                IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
+
+                io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
+                io->owner = Reference<AsyncFileIOUring>::addRef(this);
+
+                /*
+                //Only writes change the filesize
+				if (this->lastFileSize != this->nextFileSize) {
+					++ctx.countPreSubmitTruncate;
+					int64_t truncateSize = this->nextFileSize - this->lastFileSize;
+					ASSERT(truncateSize > 0);
+					ctx.preSubmitTruncateBytes += truncateSize;
+					int64_t largestTruncate = std::max(largestTruncate, truncateSize);
+					this->truncate(io->owner->nextFileSize);
+				}
+                 */
+
+				int rc = io_uring_submit(&ctx.ring);
+				if(rc<=0){
+				    //For now, just throw an error
+				    //Since the even is prepped in the ring already, we could handle this differently and avoid the error
+				    throw io_error();
+				}else{
+#if IOUring_TRACING
+		printf("Directly submitted read on io %p\n", io);
+#endif
+				    ctx.submitted++;
+				}
+			}
+		}else{
+		    enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
+		}
+    Future<int> result = io->result.getFuture();
+	return result;
 
-		return result;
 	}
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
@@ -381,17 +435,17 @@ public:
 #if IOUring_TRACING
 		printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
-		//FOr now, don-t worry about min submit
+		//We don't enforce any min_submit
 		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
-		////Note that we have create the ring with a number of entries that equals the MAX_OUTSTANDING
 		int to_push=ctx.queue.size() + ctx.outstanding;
 		if (to_push>0) {
-			//Do not have more than a max of ops in the ring
+			//Cannot have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
+
 			if(!to_push){
-			    if(!ctx.peek_in_launch) return;
-			    else goto peek;
+			    //The ring is full with submitted ops.
+			    return;
 			}
 			ctx.submitMetric = true;
 
@@ -399,6 +453,7 @@ public:
 			//TODO: this should be !outstanding+submitted?
 			if (!ctx.outstanding) ctx.ioStallBegin = begin;
 
+			//TODO: allocate this statically?
 			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
 			//we only push new stuff from the ctx. Outstanding are alrady in the ring
 			//(A workaround could be possibly cqe-see t
@@ -409,7 +464,7 @@ public:
 			int n = to_push - ctx.outstanding;
 			ASSERT(n>=0);
 #if IOUring_TRACING
-			printf("%d events in queue. Outstanding %d max %d \n",ctx.queue.size(), ctx.outstanding, FLOW_KNOBS->MAX_OUTSTANDING,n);
+			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -428,7 +483,6 @@ public:
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
-				//prep does not return error code
 				switch(io->opcode){
 				case UIO_CMD_PREAD:
 				{
@@ -460,7 +514,7 @@ public:
 				}
 				ctx.queue.pop();
 				io_uring_sqe_set_data(sqe, io);
-				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				if(ctx.ioTimeout > 0) {
 					ctx.appendToRequestList(io);
 				}
 
@@ -509,7 +563,7 @@ public:
 
 			double elapsed = timer_monotonic() - begin;
 
-			if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
+			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
 
 			//TraceEvent("Launched").detail("N", rc).detail("Queued", ctx.queue.size()).detail("Elapsed", elapsed).detail("Outstanding", ctx.outstanding+rc);
 			//printf("launched: %d/%d in %f us (%d outstanding; lowest prio %d)\n", rc, ctx.queue.size(), elapsed*1e6, ctx.outstanding + rc, toStart[n-1]->getTask());
@@ -523,45 +577,15 @@ public:
 					rc = 1;
 				}
 			} else{
-			    //We want that outstanding represents the number of events NOT pushed to the ring
-				if (dequeued_nr > rc) printf("Dequeued %d items but only %d pushed\n",dequeued_nr, rc);
+			    //outstanding represents the number of events NOT pushed to the ring
+				#if IOUring_TRACING
+			    if (dequeued_nr > rc) printf("Dequeued %d items but only %d pushed\n",dequeued_nr, rc);
+                #endif
 			    ctx.outstanding +=(dequeued_nr - rc);
 				int old = ctx.submitted;
 				ctx.submitted += rc;
-				if(old==0 && ctx.submitted>0 && !ctx.peek_in_launch){
-#if IOUring_TRACING
-					printf("Sending on promise %p\n",&(ctx.promise));
-#endif
-					ctx.promise.send(sent++);
-					ctx.promise.reset();
-				}
 		}
 	}
-		if(ctx.peek_in_launch){
-        peek:
-             io_uring_cqe* cqe;
-#if IOUring_TRACING
-             printf("Peeking in launch with %d submitted  %d outstanding %d enqueued\n",ctx.submitted,ctx.outstanding,ctx.queue.size());
-#endif
-             int p = io_uring_peek_cqe(&ctx.ring, &cqe);
-             if(!ctx.consume_in_launch){
-#if IOUring_TRACING
-                 if (p>=0 ){
-                     printf("peek returned %d. Can be set %d\n",p,ctx.promise.canBeSet());
-                     if( ctx.promise.canBeSet()){
-                     printf("Setting promise to %d\n",sent);
-                     ctx.promise.send(sent++);
-                     }
-                 }
-#else
-                 if (p>=0 && ctx.promise.canBeSet()){
-                     ctx.promise.send(sent++);
-                 }
-#endif
-            }else{
-                 if (p>=0 )consume();
-             }
-		 }
 	}
 
 
@@ -662,8 +686,7 @@ private:
 		Int64MetricHandle submitMetric;
 
 		struct io_uring_cqe* cqes[1024];
-		bool peek_in_launch=true;
-		bool consume_in_launch=true;
+		struct IOBlock* io_res[1024];
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -772,7 +795,7 @@ private:
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
 #if IOUring_TRACING
 	    printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
-			this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 #endif
 	    if(io->opcode !=UIO_CMD_FSYNC){
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
@@ -805,260 +828,84 @@ private:
 		return oflags;
 	}
 
-	// Future<int64_t> wait_cqe() {
-	// 	Promise<int64_t> p;
-	// 	io_uring_wait_cqe(&ctx.ring, &cqe);
-	// 	sd.async_read_some( boost::asio::mutable_buffers_1( &fdVal, sizeof(fdVal) ),
-	// 			boost::bind( &EventFD::handle_read, p, &fdVal, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred ) );
-	// 	return p.getFuture();
-	// }
-
-	ACTOR static void poll2( Reference<IEventFD> ev, Promise<int> *p ) {
-		// state TaskaPriority taskID = g_network->getCurrentTask();
-		state int rc;
-		state io_uring_cqe* cqe;
-		loop {
-			// Promise<int> p;
-			if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
-			// TODO:
-			// if there are submited IOs in the ring then priority should be DiskIOComplete, otherwise Zero
-	//		TaskPriority prio = ctx.submitted ? TaskPriority::DiskIOComplete : TaskPriority::Zero;
-			//wait(delay(0,TaskPriority::DiskIOComplete ));
-
-			//If there is nothing submitted, we don't have to poll
-			//yield for X time and roll over
-			if(!ctx.submitted){
-				Future<int> fi = (p)->getFuture();
-				if(IOUring_TRACING){
-					printf("Waiting on future from promise %p\n",p);
-					int fii = wait(fi);
-					printf("Waited and got %d\n",fii);
-				}
-				else{
-					int fii = wait(fi);
-				}
-				wait(delay(0,TaskPriority::DiskIOComplete));
-				//wait(delay(0.1,TaskPriority::DiskIOComplete));
-				//continue;
-			}
-			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
-			if (rc < 0) {
-				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-					TraceEvent("IOGetEventsError").GetLastError();
-					throw io_error();
-				}else{
-				    wait(delay(0.1,TaskPriority::DiskIOComplete));
-				    continue;
-			    }
-			}
-			wait(delay(0,TaskPriority::DiskIOComplete ));
-
-			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
-			if(!cqe){
-				//Not sure if this is ever executed
-			    continue;
-			}
-			++ctx.countAIOCollect;
-			int res = cqe->res;
-
-/*
-			if (res < 0) {
-			    // The system call invoked asynchonously failed
-				//Even if the inner call has failed, let's report it to the upper layer
-				printf("io_uring_peek_cqe returned res: %d %s\n", cqe->res, strerror(-cqe->res));
-				//io_uring_cqe_seen(&ctx.ring, cqe);
-				//continue;
-			}
-*/
-			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
-			ASSERT(nullptr != iob);
-			//printf("Prcessing IOBlock %p. cqe->res is %d %s\n",iob,res,strerror(-res));
-			io_uring_cqe_seen(&ctx.ring, cqe);
-			cqe=nullptr;
-			{
-				double t = timer_monotonic();
-				double elapsed = t - ctx.ioStallBegin;
-				ctx.ioStallBegin = t;
-				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
-			}
-
-			ctx.submitted --;
-
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				double currentTime = now();
-				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-					ctx.removeFromRequestList(ctx.submittedRequestList);
-				}
-			}
-
-
-			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				ctx.removeFromRequestList(iob);
-			}
-			iob->setResult(res);
-		}
-	}
-
-
-	static void consume(){
-	    int r=0;
-	    int rc;
-			while(1){ //loop as long as there are ready events
-			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
-			    if(0==rc){
-			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
-			        r++;
-			    }else{
-			        break;
-			    }
-			}
-
-
-				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-					TraceEvent("IOGetEventsError").GetLastError();
-					throw io_error();
-				}else{
-				    if(!r){//We did not pull anything.
-				    return;
-				    }
-			    }
-
-
-
-			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
-
-
-			{
-			    ++ctx.countAIOCollect;
-				double t = timer_monotonic();
-				double elapsed = t - ctx.ioStallBegin;
-				ctx.ioStallBegin = t;
-				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
-			}
-
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				double currentTime = now();
-				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-					ctx.removeFromRequestList(ctx.submittedRequestList);
-				}
-			}
-
-			int got;
-		    for(got=0;got<r;got++){
-		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
-			    ASSERT(nullptr != iob);
-			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-					ctx.removeFromRequestList(iob);
-				}
-
-				iob->setResult( res);
-		    }
-		    ctx.submitted-=got;
-	}
-
-
-	ACTOR static void poll( Reference<IEventFD> ev, Promise<int> *p ) {
+	ACTOR static void poll( Reference<IEventFD> ev){
 		state int rc=0;
+		state io_uring_cqe* cqe;
+		state int64_t to_consume;
 		loop {
-
-			//If there is nothing submitted, we don't have to poll
-			//yield for X time and roll over
-			if(!ctx.peek_in_launch){
-			   if(IOUring_TRACING)			printf("Polling with outstanding %d and submitted %d\n",ctx.outstanding,ctx.submitted);
-
-                if(!ctx.submitted){
-                    Future<int> fi = (p)->getFuture();
-                    if(IOUring_TRACING){
-                        printf("Waiting on future from promise %p\n",p);
-                        int fii = wait(fi);
-                        printf("Waited and got %d\n",fii);
-                    }
-                    else{
-                        int fii = wait(fi);
-                    }
-                }
-			}else{
-			    Future<int> fi = (p)->getFuture();
-			    if(IOUring_TRACING)printf("Waiting on future from promise %p with submitred %d and outstanding %d\n",p,ctx.submitted,ctx.outstanding);
-			    int fii = wait(fi);
-			    if(IOUring_TRACING)printf("Waited and got %d\n",fii);
-			    p->reset();
-			    if(IOUring_TRACING)printf("promise reset. canbeset: %d\n",p->canBeSet());
-			    wait(delay(0,TaskPriority::DiskIOComplete));
-			}
-			//Submitted > 0
 			state int r=0;
-			while(1){ //loop as long as there are ready events
-			    rc = io_uring_peek_cqe(&ctx.ring, &(ctx.cqes[r]));
-			    if(0==rc){
-			        io_uring_cqe_seen(&ctx.ring, ctx.cqes[r]);
-			        if(r==0 && !ctx.peek_in_launch){
-			            //yield one time only, when stuff is ready (as in KAIO)
-			            wait(delay(0,TaskPriority::DiskIOComplete ));
-			        }
-			        r++;
-			    }else{
-			        break;
-			    }
+			if(IOUring_TRACING){
+				printf("Waiting\n");
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				printf("Waited %lu\n",ev_r);
+				wait(delay(0, TaskPriority::DiskIOComplete));
+				printf("Rescheduled\n");
+			}else{
+			    int64_t ev_r = wait( ev->read());
+			    to_consume=ev_r;
+				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
 
-
-				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
-					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-					TraceEvent("IOGetEventsError").GetLastError();
-					throw io_error();
-				}else{
-				    if(!r){//We did not pull anything.
-				    wait(delay(0.1,TaskPriority::DiskIOComplete));
-				    continue;
-				    }
-			    }
-
-
-
-			if(IOUring_TRACING)			printf("POLLED with rc %d %s outstanding=%d\n",rc,strerror(-rc), ctx.outstanding);
-
-
-			{
-			    ++ctx.countAIOCollect;
-				double t = timer_monotonic();
-				double elapsed = t - ctx.ioStallBegin;
-				ctx.ioStallBegin = t;
-				if(!AVOID_STALLS) g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
-			}
-
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				double currentTime = now();
-				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-					ctx.removeFromRequestList(ctx.submittedRequestList);
+			loop{ //loop as long as there are ready events. Grab at least one
+				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+				if(rc<0){
+					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+						TraceEvent("IOGetEventsError").GetLastError();
+						throw io_error();
+					}
+					/*
+					 * eventfd never wakes up up if nothing can be consumed
+					 * i.e. --> we wake up implies we can peek successfully
+					 * It can happen, however, that we wake up because X events are ready
+					 * but we consume X+Y events, b/c Y events wre completed in the meantime
+					 * Then, eventfd will still notify us of the extra Y, but we have already
+					 * consumed them
+					 */
+					break;
 				}
-			}
+				//We've got an event. Let's consume it
 
-			int got;
-		    for(got=0;got<r;got++){
-		        int res = ctx.cqes[got]->res;
-		        IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(ctx.cqes[got]));
-			    ASSERT(nullptr != iob);
-			    IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, res);
-                if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-					ctx.removeFromRequestList(iob);
+				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+				ASSERT(iob!=nullptr);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+						ctx.removeFromRequestList(iob);
+					}
+					iob->setResult(cqe->res);
+				io_uring_cqe_seen(&ctx.ring, cqe);
+				r++;
+			}
+			/*
+			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
+			 */
+
+			if(r){
+
+				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+
+
+				{
+					++ctx.countAIOCollect;
+					double t = timer_monotonic();
+					double elapsed = t - ctx.ioStallBegin;
+					ctx.ioStallBegin = t;
+					g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 				}
 
-				iob->setResult( res);
-		    }
-		    ctx.submitted-=got;
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					double currentTime = now();
+					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+						ctx.removeFromRequestList(ctx.submittedRequestList);
+					}
+				}
+				ctx.submitted-=r;
+			}
 		}
 	}
-};
+
 
 #if IOUring_LOGGING
 // Call from contexts where only an ioblock is available, log if its owner is set
