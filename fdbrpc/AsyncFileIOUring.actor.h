@@ -193,9 +193,7 @@ public:
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
 
-		if(FLOW_KNOBS->IO_URING_USE_REACTOR){
-		    io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		}
+		io_uring_register_eventfd(&ctx.ring, ctx.evfd);
 		poll(ev);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
@@ -431,7 +429,6 @@ public:
 	}
 
 	static void launch() {
-		static int sent=0;
 #if IOUring_TRACING
 		printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
@@ -582,10 +579,9 @@ public:
 			    if (dequeued_nr > rc) printf("Dequeued %d items but only %d pushed\n",dequeued_nr, rc);
                 #endif
 			    ctx.outstanding +=(dequeued_nr - rc);
-				int old = ctx.submitted;
-				ctx.submitted += rc;
+			    ctx.submitted += rc;
+			}
 		}
-	}
 	}
 
 
@@ -905,7 +901,7 @@ private:
 			}
 		}
 	}
-
+};
 
 #if IOUring_LOGGING
 // Call from contexts where only an ioblock is available, log if its owner is set
