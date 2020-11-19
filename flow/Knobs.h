@@ -137,8 +137,10 @@ public:
 	//AsyncFileKAIO
 	int MAX_OUTSTANDING;
 	int MIN_SUBMIT;
+	//IOURING
 	bool ENABLE_IO_URING;
 	bool IO_URING_DIRECT_SUBMIT;
+	bool USE_IO_URING_FOR_CACHED;
 
 	int PAGE_WRITE_CHECKSUM_HISTORY;
 	int DISABLE_POSIX_KERNEL_AIO;
@@ -245,9 +247,6 @@ public:
 	int HEALTH_MONITOR_CLIENT_REQUEST_INTERVAL_SECS;
 	int HEALTH_MONITOR_CONNECTION_MAX_CLOSED;
 
-        //IOUring
-	bool ENABLE_IO_URING;
-	bool USE_IO_URING_FOR_CACHED;
 	FlowKnobs();
 	void initialize(bool randomize = false, bool isSimulated = false);
 };
