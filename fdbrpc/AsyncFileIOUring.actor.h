@@ -221,57 +221,44 @@ public:
 		io->offset = offset;
 
 		//We enqueue if > max events have already been pushed to the ring
-		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && (ctx.outstanding + ctx.submitted) < FLOW_KNOBS->MAX_OUTSTANDING){
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
 
-		    double startT=now();
-		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
+			double startT=now();
+			struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 			if (nullptr == sqe){
-			    printf("Enqueueing due to failed get_sqe\n");
+#if IOUring_TRACING
+				printf("Enqueueing due to failed get_sqe\n");
+#endif
 				enqueue(io, "read", this);
-            }else{
+			}else{
 				io->startTime = startT;
-                struct iovec *iov= &io->iovec;
-                iov->iov_base=io->buf;
-                iov->iov_len=io->nbytes;
-                io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-			    io_uring_sqe_set_data(sqe, io);
+				struct iovec *iov= &io->iovec;
+				iov->iov_base=io->buf;
+				iov->iov_len=io->nbytes;
+				io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+				io_uring_sqe_set_data(sqe, io);
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
 
+				IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
-                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
-                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
-                    ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
-
-                IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
-
-                io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
-                io->owner = Reference<AsyncFileIOUring>::addRef(this);
-
-                /*
-                //Only writes change the filesize
-				if (this->lastFileSize != this->nextFileSize) {
-					++ctx.countPreSubmitTruncate;
-					int64_t truncateSize = this->nextFileSize - this->lastFileSize;
-					ASSERT(truncateSize > 0);
-					ctx.preSubmitTruncateBytes += truncateSize;
-					int64_t largestTruncate = std::max(largestTruncate, truncateSize);
-					this->truncate(io->owner->nextFileSize);
-				}
-                 */
+				io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
+				io->owner = Reference<AsyncFileIOUring>::addRef(this);
 
 				int rc = io_uring_submit(&ctx.ring);
 				if(rc<=0){
-				    //For now, just throw an error
-				    //Since the even is prepped in the ring already, we could handle this differently and avoid the error
-				    throw io_error();
+					//For now, just throw an error
+					throw io_error();
 				}else{
 #if IOUring_TRACING
-		printf("Directly submitted read on io %p\n", io);
+					printf("Directly submitted read on io %p\n", io);
 #endif
-				    ctx.submitted++;
+					ctx.submitted++;
 				}
 			}
 		}else{
-		    enqueue(io, "read", this);
+			enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
@@ -299,7 +286,56 @@ public:
 #if IOUring_TRACING
 		printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
 #endif
-		enqueue(io, "write", this);
+
+		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
+			double startT=now();
+			struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
+			if (nullptr == sqe){
+#if IOUring_TRACING
+				printf("Enqueueing due to failed get_sqe\n");
+#endif
+				enqueue(io, "write", this);
+            }else{
+				io->startTime = startT;
+				struct iovec *iov= &io->iovec;
+				iov->iov_base=io->buf;
+				iov->iov_len=io->nbytes;
+				io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+				io_uring_sqe_set_data(sqe, io);
+
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
+				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
+
+				IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
+
+				io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
+				io->owner = Reference<AsyncFileIOUring>::addRef(this);
+
+				if (this->lastFileSize != this->nextFileSize) {
+					++ctx.countPreSubmitTruncate;
+					int64_t truncateSize = this->nextFileSize - this->lastFileSize;
+					ASSERT(truncateSize > 0);
+					ctx.preSubmitTruncateBytes += truncateSize;
+					int64_t largestTruncate = std::max(largestTruncate, truncateSize);
+					this->truncate(io->owner->nextFileSize);
+				}
+
+
+				int rc = io_uring_submit(&ctx.ring);
+				if(rc<=0){
+				    //For now, just throw an error
+				    throw io_error();
+				}else{
+#if IOUring_TRACING
+					printf("Directly submitted read on io %p\n", io);
+#endif
+					ctx.submitted++;
+				}
+			}
+		}else{
+		    enqueue(io, "write", this);
+		}
 		Future<int> result = io->result.getFuture();
 
 #if IOUring_LOGGING
@@ -403,7 +439,40 @@ public:
 	    IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::START);
 
 	    IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
-	    enqueue(io, "fsync",this);
+	    if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
+
+		    double startT=now();
+		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
+		    if (nullptr == sqe){
+#if IOUring_TRACING
+			    printf("Enqueueing due to failed get_sqe\n");
+#endif
+			    enqueue(io, "fsync", this);
+		    }else{
+			    io->startTime = startT;
+			    io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+			    io_uring_sqe_set_data(sqe, io);
+			    IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
+
+			    io->prio = (int64_t(g_network->getCurrentTask())<<32) - (++ctx.opsIssued);
+			    io->owner = Reference<AsyncFileIOUring>::addRef(this);
+
+			    int rc = io_uring_submit(&ctx.ring);
+			    if(rc<=0){
+				    //For now, just throw an error
+				    throw io_error();
+			    }else{
+#if IOUring_TRACING
+				    printf("Directly submitted fsync on io %p\n", io);
+#endif
+				    ctx.submitted++;
+			    }
+
+		    }
+
+	    }else{
+		    enqueue(io, "fsync",this);
+	    }
 	    Future<Void> fsync=success(io->result.getFuture());
 
 #if IOUring_LOGGING
@@ -432,9 +501,9 @@ public:
 #if IOUring_TRACING
 		printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
-		//We don't enforce any min_submit
-		//We want to get to call "submit" if we have stuff in the ctx queue or in the ring queue
-		int to_push=ctx.queue.size() + ctx.outstanding;
+		//W.r.t. KAIO, We don't enforce any min_submit. This reduces the variance in performance
+		//We want to call "submit" if we have stuff in the ctx queue or in the ring queue
+		int to_push=ctx.queue.size();
 		if (to_push>0) {
 			//Cannot have more than a max of ops in the ring
 			if (to_push + ctx.submitted> FLOW_KNOBS->MAX_OUTSTANDING)
@@ -447,18 +516,8 @@ public:
 			ctx.submitMetric = true;
 
 			double begin = timer_monotonic();
-			//TODO: this should be !outstanding+submitted?
-			if (!ctx.outstanding) ctx.ioStallBegin = begin;
+			if (!ctx.submitted) ctx.ioStallBegin = begin;
 
-			//TODO: allocate this statically?
-			IOBlock* toStart[FLOW_KNOBS->MAX_OUTSTANDING];
-			//we only push new stuff from the ctx. Outstanding are alrady in the ring
-			//(A workaround could be possibly cqe-see t
-			//he outstanding and re-enqueue them, but I guess it costs too much
-
-			//These are the new ones we have to put in the ring
-			//outstanding should always be < max, so n should benon-negative
-			int n = to_push - ctx.outstanding;
 			ASSERT(n>=0);
 #if IOUring_TRACING
 			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,n);
@@ -466,16 +525,11 @@ public:
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
 			int64_t largestTruncate = 0;
-			int dequeued_nr = 0;
 			int i=0;
-			for(; i<n; i++) {
+			for(; i<to_push; i++) {
 				auto io = ctx.queue.top();
 				double startT=now();
 				struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
-				if (nullptr == sqe)
-					break;
-
-				toStart[i] = io;
 				io->startTime = startT;
 
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
@@ -524,18 +578,21 @@ public:
 					io->owner->truncate(io->owner->nextFileSize);
 				}
 			}
-			dequeued_nr = i;
 			double truncateComplete = timer_monotonic();
 			int rc = io_uring_submit(&ctx.ring);
 			double end = timer_monotonic();
-#if IOUring_TRACING
-			if (0 <= rc)
-				printf("io_uring_submit submitted %d items\n", rc);
-			else
+			if (rc <=0 || rc < i){
+			    //Error if rc<0 or if it undersubmits w.r.t. what we want to push
 				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
+				//If error is EAGAIN maybe we could just loop ocer and retry, but for now we crash on error
+				//It is not clear how io_uring handles cqes that are prepared but not pushed
+				throw io_error();
+			}
+#if IOUring_TRACING
+			printf("io_uring_submit submitted %d items\n", rc);
+
 #endif
-			//Thre might be unpushed items. These have been prepped already, and the corresponding sqe
-			//should be already ready to be pushed next time
+
 
 			if(end-begin > FLOW_KNOBS->SLOW_LOOP_CUTOFF) {
 				ctx.slowAioSubmitMetric->submitDuration = end-truncateComplete;
@@ -561,26 +618,7 @@ public:
 			double elapsed = timer_monotonic() - begin;
 
 			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
-
-			//TraceEvent("Launched").detail("N", rc).detail("Queued", ctx.queue.size()).detail("Elapsed", elapsed).detail("Outstanding", ctx.outstanding+rc);
-			//printf("launched: %d/%d in %f us (%d outstanding; lowest prio %d)\n", rc, ctx.queue.size(), elapsed*1e6, ctx.outstanding + rc, toStart[n-1]->getTask());
-			if (rc<0) {
-				if (errno == EAGAIN) {
-					rc = 0;
-				} else {
-					IOUringLogBlockEvent(toStart[0], OpLogEntry::COMPLETE, errno ? -errno : -1000000);
-					// Other errors are assumed to represent failure to issue the first I/O in the list
-					toStart[0]->setResult( errno ? -errno : -1000000 );
-					rc = 1;
-				}
-			} else{
-			    //outstanding represents the number of events NOT pushed to the ring
-				#if IOUring_TRACING
-			    if (dequeued_nr > rc) printf("Dequeued %d items but only %d pushed\n",dequeued_nr, rc);
-                #endif
-			    ctx.outstanding +=(dequeued_nr - rc);
-			    ctx.submitted += rc;
-			}
+            ctx.submitted += rc;
 		}
 	}
 
@@ -681,8 +719,6 @@ private:
 		Int64MetricHandle countAIOCollect;
 		Int64MetricHandle submitMetric;
 
-		struct io_uring_cqe* cqes[1024];
-		struct IOBlock* io_res[1024];
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
