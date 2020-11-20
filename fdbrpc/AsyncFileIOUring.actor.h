@@ -518,7 +518,6 @@ public:
 			double begin = timer_monotonic();
 			if (!ctx.submitted) ctx.ioStallBegin = begin;
 
-			ASSERT(n>=0);
 #if IOUring_TRACING
 			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
