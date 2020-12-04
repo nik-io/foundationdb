@@ -28,11 +28,11 @@ uring_srv=""
 run_test(){
     out=${1}
     uring=${2}
-    mem="4 GB"
+    mem="4GB"
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
     iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
-    {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} --knob_page_cache_4k $(( $PAGE_CACHE * 1024 * 1024 )) ${uring} --logdir=${DATALOGPATH} ; } > ${RESULTS}/${out} 2>&1
+    {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --knob_page_cache_4k $(( $PAGE_CACHE * 1024 * 1024 )) --logdir=${DATALOGPATH}  ; } > ${RESULTS}/${out} 2>&1
 }
 
 
