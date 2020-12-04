@@ -18,17 +18,21 @@ CLS="/home/ddi/fdb.flex13"
 DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0/ioutest"
 PAGE_CACHE="10"  #MiB
+RESULTS=`date +%Y-%m-%d_%H-%M-%S`
+mkidr -p ${RESULTS} || exit 1
+
 
 uring=""
 uring_srv=""
 
 run_test(){
-    out=${1}
+    out=${RESULTS}/${1}
     uring=${2}
+    mem="4 GB"
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
     iostat -x 1 -p ${DEV} > iostat_$out &
-    {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory 64GB ${uring} ; } > ${out} 2>&1
+    {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} --knob_page_cache_4k $(( $PAGE_CACHE * 1024 * 1024 )) ${uring} --logdir=${DATALOGPATH} ; } > ${out} 2>&1
 }
 
 
