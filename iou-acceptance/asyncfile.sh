@@ -16,7 +16,7 @@ TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
 CLS="/home/ddi/fdb.flex13"
 #device on which  the data and log path are mounted (used for io stat collection)
 DEV="nvme0n1"
-DATALOGPATH="/mnt/nvme/nvme0"
+DATALOGPATH="/mnt/nvme/nvme0/ioutest"
 
 
 uring=""
@@ -47,14 +47,13 @@ spawn(){
     #remove the old test file
     fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
     echo "removing ${fn}"
-    exit 0
     rm ${fn} || true
 
 
     mkdir -p ${DATALOGPATH}
-    rm -rf ${DATALOGPATH}/*
     echo "removing ${DATALOGPATH}/*"
     exit 0
+    rm -rf ${DATALOGPATH}/*
     #spawn one-process cluster
     mkdir ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB}  ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
