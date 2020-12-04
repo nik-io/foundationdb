@@ -19,7 +19,7 @@ DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0/ioutest"
 PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
-mkidr -p ${RESULTS} || exit 1
+mkdir -p ${RESULTS} || exit 1
 
 
 uring=""
