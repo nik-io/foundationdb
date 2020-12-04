@@ -133,11 +133,11 @@ run_one(){
     pkill -9 iostat
 }
 
-sec=30
+sec=120
 buff="unbuffered" #buffered unbuffered
 cached="cached"   #cached uncached
 
-for run in 1 2; do
+for run in 1 2 3 4 5; do
     for parallel_reads in 64 32 1; do
         for write_perc in 0 50 100;do
             for io in "io_uring" "kaio"; do
