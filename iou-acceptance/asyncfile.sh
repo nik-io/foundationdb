@@ -10,10 +10,10 @@ END_COMM
 
 FDBCLI="/mnt/ddi/uringdb/bld/bin/fdbcli"
 FDBSERVER="/mnt/ddi/uringdb/bld/bin/fdbserver"
-LIB="/mnt/ddi/uringdb/liburing/src"
+LIB="/mnt/nvme/nvme0/ddi/liburingsrc"
 #use .stub for the stub and .txt for the test
-TEST="/mnt/ddi/uringdb/tests/IOU"
-CLS="/home/ddi/fdb-official/fdb.cluster"
+TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
+CLS="/home/ddi/fdb.flex13"
 #device on which  the data and log path are mounted (used for io stat collection)
 DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0"
