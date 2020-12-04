@@ -86,6 +86,7 @@ setup_test(){
     sed -i  "s/TEST_UNBUFFERED/$4/g" ${TEST}.txt
     sed -i  "s/TEST_UNCACHED/$5/g" ${TEST}.txt
     sed -i  "s/TEST_WRITE_FRACTION/$6/g" ${TEST}.txt
+    sed -i  "s/FILE_NAME/${DATALOGPATH}\/file.dat/g" ${TEST}.txt
 }
 
 run_one(){
