@@ -8,16 +8,16 @@ AsyncFileTest
 END_COMM
 
 
-FDBCLI="/mnt/ddi/uringdb/bld/bin/fdbcli"
-FDBSERVER="/mnt/ddi/uringdb/bld/bin/fdbserver"
-LIB="/mnt/nvme/nvme0/ddi/liburingsrc"
+FDBCLI="/home/ddi/fdb_binaries_700/fdbcli"
+FDBSERVER="/home/ddi/fdb_binaries_700/fdbserver"
+LIB="/mnt/nvme/nvme0/ddi/liburing/src"
 #use .stub for the stub and .txt for the test
 TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
 CLS="/home/ddi/fdb.flex13"
 #device on which  the data and log path are mounted (used for io stat collection)
 DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0/ioutest"
-
+PAGE_CACHE="10"  #MiB
 
 uring=""
 uring_srv=""
@@ -27,7 +27,7 @@ run_test(){
     uring=${2}
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
-    iostat -x 1 -p ${DEV} > io_$out &
+    iostat -x 1 -p ${DEV} > iostat_$out &
     {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory 64GB ${uring} ; } > ${out} 2>&1
 }
 
@@ -39,7 +39,7 @@ spawn(){
     pkill -9 fdbserver || true    #if nothing is killed, error is returned
     sleep 1
 
-    data_dir=${DATALOGPATH}/"tmp_dir"
+    data_dir=${DATALOGPATH}"/tmp_dir"
 
 
     port=4500
@@ -52,10 +52,9 @@ spawn(){
 
     mkdir -p ${DATALOGPATH}
     echo "removing ${DATALOGPATH}/*"
-    exit 0
     rm -rf ${DATALOGPATH}/*
     #spawn one-process cluster
-    mkdir ${data_dir}/${port} || true
+    mkdir -p ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB}  ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 
     #spawn the test role
@@ -70,14 +69,15 @@ spawn(){
 }
 
 setup_test(){
-    if [[ $1 == "io_uring" ]]; then
-        uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true"
-        echo "URING"
-    elif [[ $1 == "kaio" ]];then
-        uring=""
-        echo "KAIO"
-    else
-        echo "Mode not supported. Use either io_uring or kaio"
+    pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
+	if [[ $1 == "io_uring" ]]; then
+		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
+		echo "URING"
+	elif [[ $1 == "kaio" ]];then
+		uring=" --knob_page_cache_4k ${pc}"
+		echo "KAIO"
+	else
+		echo "Mode not supported. Use either io_uring or kaio"
         exit 1
     fi
 
