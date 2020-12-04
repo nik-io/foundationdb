@@ -46,11 +46,15 @@ spawn(){
 
     #remove the old test file
     fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
+    echo "removing ${fn}"
+    exit 0
     rm ${fn} || true
 
 
     mkdir -p ${DATALOGPATH}
     rm -rf ${DATALOGPATH}/*
+    echo "removing ${DATALOGPATH}/*"
+    exit 0
     #spawn one-process cluster
     mkdir ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB}  ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
@@ -86,7 +90,10 @@ setup_test(){
     sed -i  "s/TEST_UNBUFFERED/$4/g" ${TEST}.txt
     sed -i  "s/TEST_UNCACHED/$5/g" ${TEST}.txt
     sed -i  "s/TEST_WRITE_FRACTION/$6/g" ${TEST}.txt
-    sed -i  "s/FILE_NAME/${DATALOGPATH}\/file.dat/g" ${TEST}.txt
+    #replace slash in path with escaped slash
+    #https://unix.stackexchange.com/questions/211834/slash-and-backslash-in-sed
+    file=$(echo "${DATALOGPATH}/file.dat" |  sed -e 's/\//\\\//g')
+    sed -i  "s/FILE_NAME/${file}/g" ${TEST}.txt
 }
 
 run_one(){
