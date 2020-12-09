@@ -39,7 +39,7 @@ run_test(){
      timepid=$!
      testpid=$(pgrep -P $timepid)
      echo "test pid ${testpid}"
-    CORE= $(( $CORE + 1 ))
+     CORE=$(( $CORE + 1 ))
      while kill -0 $testpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
 }
 
@@ -68,13 +68,13 @@ spawn(){
     #spawn one-process cluster
     mkdir -p ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-    CORE= $(( $CORE + 1 ))
+    CORE=$(( $CORE + 1 ))
 
     #spawn the test role
     port=$((${port}+1))
     mkdir ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-    CORE= $(( $CORE + 1 ))
+    CORE=$(( $CORE + 1 ))
 
     sleep 5 #give time to join the cluster
 
@@ -144,7 +144,8 @@ run_one(){
     pkill -9 iostat
 
     #copy the xml file
-    cp ${DATALOGPATH}/*xml $RESULTS/$out_file.xml
+    xml=$(ls ${DATALOGPATH}/*xml | tail -n1)
+    cp $xml $RESULTS/$out_file.xml
 }
 
 sec=120
