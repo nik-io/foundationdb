@@ -8,15 +8,15 @@ AsyncFileTest
 END_COMM
 
 
-FDBCLI="/home/ddi/fdb_binaries_700/fdbcli"
-FDBSERVER="/home/ddi/fdb_binaries_700/fdbserver"
-LIB="/mnt/nvme/nvme0/ddi/liburing/src"
+FDBCLI="/mnt/nvme/nvme0/uringdb/bld/bin/fdbcli"
+FDBSERVER="/mnt/nvme/nvme0/uringdb/bld/bin/fdbserver"
+LIB="/mnt/nvme/nvme0/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
-TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
-CLS="/home/ddi/fdb.flex13"
+TEST="/mnt/nvme/nvme0/uringdb/tests/IOU"
+CLS="/home/ddi/fdb-official/fdb.cluster"
 #device on which  the data and log path are mounted (used for io stat collection)
-DEV="nvme0n1"
-DATALOGPATH="/mnt/nvme/nvme0/ioutest"
+DEV="nvme1n1"
+DATALOGPATH="/mnt/nvme/nvme1/ioutest"
 PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 mkdir -p ${RESULTS} || exit 1
@@ -32,10 +32,12 @@ run_test(){
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
     iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
-    {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --knob_page_cache_4k $(( $PAGE_CACHE * 1024 * 1024 )) --logdir=${DATALOGPATH}  ; } > ${RESULTS}/${out} 2>&1
+        {  time LD_LIBRARY_PATH=${LIB} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --knob_page_cache_4k $(( $PAGE_CACHE * 1024 * 1024 )) --logdir=${DATALOGPATH}  ; } > ${RESULTS}/${out} 2>&1 &
+         timepid=$!
+         testpid=$(pgrep -P $timepid)
+         echo "test pid ${testpid}"
+         while kill -0 $testpid; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
 }
-
-
 
 
 spawn(){
@@ -123,7 +125,7 @@ run_one(){
     fi
 
     setup_test $io $duration $parallel_reads $unbuffered $uncached $write_fraction
-
+    cp ${TEST}.txt $RESULTS/TEST_$out_file
     spawn
 
     time run_test ${out_file} "${uring}"
@@ -133,20 +135,23 @@ run_one(){
     pkill -9 iostat
 }
 
-sec=120
+sec=30
 buff="unbuffered" #buffered unbuffered
-cached="cached"   #cached uncached
+cached="uncached"   #cached uncached
 
-for run in 1 2 3 4 5; do
-    for parallel_reads in 64 32 1; do
-        for write_perc in 0 50 100;do
-            for io in "io_uring" "kaio"; do
-                run_one ${io} ${sec} ${parallel_reads} ${buff} ${cached} ${write_perc} ${run}
-            done #uring
-        done #write perc
-     done #reads
-done #run
-
+for b in "unbuffered"; do
+	for c in "cached";do
+		for run in 1 2 3 4 5 6 7 8 9 10; do
+			for parallel_reads in 1 32 64; do
+				for write_perc in 0 0.5 1;do
+					for io in "io_uring" "kaio"; do
+						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
+					done #uring
+				done #write perc
+			done #reads
+		done #run
+	done
+done
 
 #comparing to
 #sudo fio --filename=/mnt/nvme/nvme10/aftest.bin  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=128 --runtime=30 --numjobs=20 --time_based --group_reporting --name=throughput-test-job --eta-newline=1 --readonly --size=10G

@@ -60,8 +60,8 @@ endif()
 
 add_library(uring SHARED IMPORTED) # or STATIC instead of SHARED
 set_target_properties(uring PROPERTIES
-        IMPORTED_LOCATION "/root/liburing/src/liburing.so.2.0.0"
-        INTERFACE_INCLUDE_DIRECTORIES "/root/liburing/src/include"
+        IMPORTED_LOCATION "/foundationdb/liburing/src/liburing.so.2.0.0"
+        INTERFACE_INCLUDE_DIRECTORIES "/foundationdb/liburing/src/include"
         )
 
 set(FDBRPC_SRCS_DISABLE_ACTOR_DIAGNOSTICS
