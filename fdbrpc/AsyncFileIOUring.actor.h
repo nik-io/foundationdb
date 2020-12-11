@@ -1003,6 +1003,7 @@ private:
 					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 						ctx.removeFromRequestList(iob);
 					}
+					if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
 					iob->setResult(cqe->res);
 					if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 					    if(iob->opcode == IO_CMD_PREAD){
