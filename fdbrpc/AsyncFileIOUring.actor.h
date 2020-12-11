@@ -248,6 +248,10 @@ public:
 					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 				}else{
 					io->buffer_index= ctx.get_buffer();
+					io->buffer_index= ctx.get_buffer();
+				    #if IOUring_TRACING
+				    printf("Reading on fixed_buffer %d\n",io->buffer_index);
+                    #endif
 					struct iovec *iov= &(ctx.fixed_buffers[io->buffer_index]);
 					io_uring_prep_read_fixed(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->buffer_index);
 				}
@@ -264,6 +268,9 @@ public:
 
 				int rc = io_uring_submit(&ctx.ring);
 				if(rc<=0){
+				    #if IOUring_TRACING
+				    printf("Direct submit failed on read\n");
+                    #endif
 					//For now, just throw an error
 					throw io_error();
 				}else{
@@ -321,6 +328,9 @@ public:
                     io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
 				    io->buffer_index= ctx.get_buffer();
+				    #if IOUring_TRACING
+				    printf("Writing on fixed_buffer %d\n",io->buffer_index);
+                    #endif
 				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
 				    memcpy(iov->iov_base,io->buf,io->nbytes);
 				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
@@ -348,6 +358,9 @@ public:
 
 				int rc = io_uring_submit(&ctx.ring);
 				if(rc<=0){
+#if IOUring_TRACING
+					printf("DIrect submit failed on write\n", io);
+#endif
 				    //For now, just throw an error
 				    throw io_error();
 				}else{
