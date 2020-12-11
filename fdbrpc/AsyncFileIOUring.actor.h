@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 #define AVOID_STALLS 0
 
 enum {
