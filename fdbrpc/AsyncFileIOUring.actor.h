@@ -191,7 +191,7 @@ public:
 			throw io_error();
 		}
 		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-            rc = io_uring_register_buffers(&ctx.ring, &ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
+            rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
             if(rc) {
                 throw io_error();
             }
@@ -241,14 +241,14 @@ public:
 				io->startTime = startT;
 
 				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				    struct iovec *iov= &io->iovec;
-                    iov->iov_base=io->buf;
-                    iov->iov_len=io->nbytes;
-				    io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+					struct iovec *iov= &io->iovec;
+					iov->iov_base=io->buf;
+					iov->iov_len=io->nbytes;
+					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 				}else{
-				    io->fixed_buffer= ctx->get_buffer();
-				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
-				    io_uring_prep_readv(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->fixed_buffer);
+					io->buffer_index= ctx.get_buffer();
+					struct iovec *iov= &(ctx.fixed_buffers[io->buffer_index]);
+					io_uring_prep_read_fixed(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->buffer_index);
 				}
 
 				io_uring_sqe_set_data(sqe, io);
@@ -319,10 +319,10 @@ public:
                     iov->iov_len=io->nbytes;
                     io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
-				    io->fixed_buffer= ctx->get_buffer();
-				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
-				    memcpy(iov->iov_base,io->buf,io->nbytes)
-				    io_uring_prep_writev(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->fixed_buffer);
+				    io->buffer_index= ctx.get_buffer();
+				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+				    memcpy(iov->iov_base,io->buf,io->nbytes);
+				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
 				}
 				io_uring_sqe_set_data(sqe, io);
 
@@ -562,15 +562,16 @@ public:
 #if IOUring_TRACING
 					printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-					struct iovec *iov= &io->iovec;
-					iov->iov_base=io->buf;
-					iov->iov_len=io->nbytes;
 					if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				        io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-                    }else{
-					    io->fixed_buffer = ctx->get_buffer();
-                        io_uring_prep_readv(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset,io->fixed_buffer);
-                    }
+						struct iovec *iov= &io->iovec;
+						iov->iov_base=io->buf;
+						iov->iov_len=io->nbytes;
+						io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+					}else{
+						io->buffer_index = ctx.get_buffer();
+						struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+						io_uring_prep_read_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+					}
 					break;
 				}
 				case UIO_CMD_PWRITE:
@@ -584,10 +585,10 @@ public:
                     iov->iov_len=io->nbytes;
                     io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
-				    io->fixed_buffer= ctx->get_buffer();
-				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
-				    memcpy(iov->iov_base,io->buf,io->nbytes)
-				    io_uring_prep_writev(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->fixed_buffer);
+				    io->buffer_index= ctx.get_buffer();
+				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+				    memcpy(iov->iov_base,io->buf,io->nbytes);
+				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
 				}
 					break;
 				}
@@ -776,36 +777,38 @@ private:
 			        throw io_error();
 			    }
 			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-                    fixed_buffers[i].iov_base = malloc(4096);
-                    if(fixed_buffers[i] == nullptr){
+		    const int buf_size=4096;		    
+                    fixed_buffers[i].iov_base = malloc(buf_size);
+                    if(fixed_buffers[i].iov_base == nullptr){
                         throw io_error();
                     }
-                    fixed_buffers[i].iov_len = BUF_SIZE;
-                    memset(fixed_buffers[i].iov_base, 0, 4096);
+                    fixed_buffers[i].iov_len = buf_size;
+                    memset(fixed_buffers[i].iov_base, 0, buf_size);
                 }
-			    buffer_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-			    if(buffer_indices == nullptr){
+			    buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			    if(buffers_indices == nullptr){
 			        throw io_error();
 			    }
 			    for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
-			        buffer_indices[i]=i;
+			        buffers_indices[i]=i;
 			    }
-			    buffer_head = buffer_tail = buffer_indices;
+			    buffer_head = buffer_tail = buffers_indices;
 			}
 		}
 
 		int get_buffer(){
 		    int ret = *buffer_head;
-		    const static roll = buffer_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+		    const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
 		    buffer_head++;
-		    if(buffer_head > roll) buffer_tail=buffer_indices;
+		    if(buffer_head > roll) buffer_tail=buffers_indices;
+		    return ret;
 		}
 
-		int release_buffer(int buffer){
+		void  release_buffer(int buffer){
 		    *buffer_tail = buffer;
-		    const static roll = buffer_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+		    const static int *roll =buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
 		    buffer_tail++;
-		    if(buffer_tail > roll) buffer_tail=buffer_indices;
+		    if(buffer_tail > roll) buffer_tail=buffers_indices;
 		}
 
 		void setIOTimeout(double timeout) {
@@ -981,10 +984,10 @@ private:
 					}
 					iob->setResult(cqe->res);
 					if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-					    if(iob->opcode == CMD_PREAD){
-					        memcpy(iob->data,&ctx->fixed_buffers[iob->buffer_index],iob->nbytess);
+					    if(iob->opcode == IO_CMD_PREAD){
+					        memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
 					    }
-					    ctx->release_buffer(iob->buffer_index);
+					    ctx.release_buffer(iob->buffer_index);
 					}
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
