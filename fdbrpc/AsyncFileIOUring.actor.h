@@ -190,6 +190,13 @@ public:
 			TraceEvent("IOSetupError").GetLastError();
 			throw io_error();
 		}
+		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+            rc = io_uring_register_buffers(&ctx.ring, &ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
+            if(rc) {
+                throw io_error();
+            }
+        }
+
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
 
@@ -232,10 +239,18 @@ public:
 				enqueue(io, "read", this);
 			}else{
 				io->startTime = startT;
-				struct iovec *iov= &io->iovec;
-				iov->iov_base=io->buf;
-				iov->iov_len=io->nbytes;
-				io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+
+				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				    struct iovec *iov= &io->iovec;
+                    iov->iov_base=io->buf;
+                    iov->iov_len=io->nbytes;
+				    io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+				}else{
+				    io->fixed_buffer= ctx->get_buffer();
+				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
+				    io_uring_prep_readv(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->fixed_buffer);
+				}
+
 				io_uring_sqe_set_data(sqe, io);
 				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
 				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
@@ -297,10 +312,18 @@ public:
 				enqueue(io, "write", this);
             }else{
 				io->startTime = startT;
-				struct iovec *iov= &io->iovec;
-				iov->iov_base=io->buf;
-				iov->iov_len=io->nbytes;
-				io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+
+				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				    struct iovec *iov= &io->iovec;
+                    iov->iov_base=io->buf;
+                    iov->iov_len=io->nbytes;
+                    io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+				}else{
+				    io->fixed_buffer= ctx->get_buffer();
+				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
+				    memcpy(iov->iov_base,io->buf,io->nbytes)
+				    io_uring_prep_writev(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->fixed_buffer);
+				}
 				io_uring_sqe_set_data(sqe, io);
 
 				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
@@ -542,7 +565,12 @@ public:
 					struct iovec *iov= &io->iovec;
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
-					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+					if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				        io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+                    }else{
+					    io->fixed_buffer = ctx->get_buffer();
+                        io_uring_prep_readv(sqe, io->aio_fildes,  io->buf, io->nbytes, io->offset,io->fixed_buffer);
+                    }
 					break;
 				}
 				case UIO_CMD_PWRITE:
@@ -550,10 +578,17 @@ public:
 #if IOUring_TRACING
 					printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-					struct iovec *iov= &io->iovec;
-					iov->iov_base=io->buf;
-					iov->iov_len=io->nbytes;
-					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				    struct iovec *iov= &io->iovec;
+                    iov->iov_base=io->buf;
+                    iov->iov_len=io->nbytes;
+                    io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+				}else{
+				    io->fixed_buffer= ctx->get_buffer();
+				    struct iovec *iov= &ctx->fixed_buffers[io->fixed_buffer];
+				    memcpy(iov->iov_base,io->buf,io->nbytes)
+				    io_uring_prep_writev(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->fixed_buffer);
+				}
 					break;
 				}
 				case UIO_CMD_FSYNC:
@@ -647,6 +682,7 @@ private:
 		IOBlock *next;
 		struct iovec iovec;
 		double startTime;
+		int buffer_index;
 #if IOUring_LOGGING
 		int32_t iolog_id;
 #endif
@@ -727,10 +763,49 @@ private:
 		Int64MetricHandle preSubmitTruncateBytes;
 
 		EventMetricHandle<SlowIOUringSubmit> slowAioSubmitMetric;
+		struct iovec* fixed_buffers;
+		int* buffers_indices;
+		int* buffer_head, *buffer_tail;
 
 		uint32_t opsIssued;
 		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
 			setIOTimeout(0);
+			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+			    fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
+			    if(fixed_buffers == nullptr){
+			        throw io_error();
+			    }
+			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
+                    fixed_buffers[i].iov_base = malloc(4096);
+                    if(fixed_buffers[i] == nullptr){
+                        throw io_error();
+                    }
+                    fixed_buffers[i].iov_len = BUF_SIZE;
+                    memset(fixed_buffers[i].iov_base, 0, 4096);
+                }
+			    buffer_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			    if(buffer_indices == nullptr){
+			        throw io_error();
+			    }
+			    for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
+			        buffer_indices[i]=i;
+			    }
+			    buffer_head = buffer_tail = buffer_indices;
+			}
+		}
+
+		int get_buffer(){
+		    int ret = *buffer_head;
+		    const static roll = buffer_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+		    buffer_head++;
+		    if(buffer_head > roll) buffer_tail=buffer_indices;
+		}
+
+		int release_buffer(int buffer){
+		    *buffer_tail = buffer;
+		    const static roll = buffer_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+		    buffer_tail++;
+		    if(buffer_tail > roll) buffer_tail=buffer_indices;
 		}
 
 		void setIOTimeout(double timeout) {
@@ -905,6 +980,12 @@ private:
 						ctx.removeFromRequestList(iob);
 					}
 					iob->setResult(cqe->res);
+					if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+					    if(iob->opcode == CMD_PREAD){
+					        memcpy(iob->data,&ctx->fixed_buffers[iob->buffer_index],iob->nbytess);
+					    }
+					    ctx->release_buffer(iob->buffer_index);
+					}
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
 			}

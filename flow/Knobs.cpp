@@ -228,7 +228,8 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 
 	init( ENABLE_IO_URING,					                  false); //Use io_uring instead of kaio
 	init( USE_IO_URING_FOR_CACHED,				              false); //Use uncached io_uring instead of cached
-	init( IO_URING_DIRECT_SUBMIT,							  false); //Bypass the op queue and dispatch read ops to the io_uring ring directly
+	init( IO_URING_DIRECT_SUBMIT,							  false); //Bypass the op queue and dispatch  ops to the io_uring ring directly
+	init( IO_URING_FIXED_BUFFERS,							          false); //Use fixed buffers
 }
 // clang-format on
 
