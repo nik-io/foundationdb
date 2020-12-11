@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-version=620
+version=700
 deploy="single"
 set -x
 if [[ ${version} == 700 ]];then
-lb=/home/ddi/ikvb/lib/fdb/700
-srv=/home/ddi/uring_binaries/fdbserver
-srv=/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver
+lb=/mnt/nvme/nvme0/uringdb/liburing/src
+srv=/mnt/nvme/nvme0/uringdb/bld/bin/fdbserver
 elif [[ ${version} == 620 ]];then
 lb=/home/ddi/ikvb/lib/fdb/620
 srv=/home/ddi/fdb_binaries_620/fdbserver
@@ -17,10 +16,9 @@ srv=/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver
 # with iou
 #srv=/home/ddi/fdb_binaries_630/fdbserver
 fi
-cls=/home/ddi/fdb.flex13
+cls=/home/ddi/fdb-official/fdb.zac13
 port=4500
-uring="--knob_enable_io_uring true
-       --knob_io_uring_use_reactor true
+uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_io_uring_fixed_buffers true
        "
 #       --knob_io_uring_direct_submit true"
 #       --knob_max_outstanding 1024"
@@ -38,7 +36,7 @@ spawn(){
         mkdir /mnt/nvme/nvme0/data_ddi/$port
         LD_LIBRARY_PATH=${lb} ${srv} -C ${cls} --datadir /mnt/nvme/nvme0/data_ddi/${port}  --listen_address public \
         --logdir /mnt/nvme/nvme0/log_ddi --public_address auto:${port} --knob_page_cache_4k 104857600 --storage_memory 4GB \
-        --memory 16GB --knob_cache_eviction_policy random --knob_max_evict_attempts 100 ${uring} ${flow} > /mnt/nvme/nvme0/data_ddi/${port}.txt 2>&1  &
+        --memory 16GB --knob_cache_eviction_policy random --knob_max_evict_attempts 100 ${uring} ${flow} 
     else
         echo "Deploying multi-process fdb"
 
