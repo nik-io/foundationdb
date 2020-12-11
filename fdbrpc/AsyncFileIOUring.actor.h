@@ -775,12 +775,14 @@ private:
 		    if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 			    fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
 			    if(fixed_buffers == nullptr){
+			        printf("could not init buffers\n");
 			        throw io_error();
 			    }
 			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
 		    const int buf_size=4096;
                     fixed_buffers[i].iov_base = malloc(buf_size);
                     if(fixed_buffers[i].iov_base == nullptr){
+                        printf("could not init buffer %d\n",i);
                         throw io_error();
                     }
                     fixed_buffers[i].iov_len = buf_size;
@@ -788,6 +790,7 @@ private:
                 }
 			    buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
 			    if(buffers_indices == nullptr){
+			        printf("could not init buffer indices\n");
 			        throw io_error();
 			    }
 			    for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
