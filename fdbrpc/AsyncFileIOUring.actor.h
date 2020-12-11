@@ -365,7 +365,7 @@ public:
 				    throw io_error();
 				}else{
 #if IOUring_TRACING
-					printf("Directly submitted read on io %p\n", io);
+					printf("Directly submitted write on io %p\n", io);
 #endif
 					ctx.submitted++;
 				}
