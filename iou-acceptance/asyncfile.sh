@@ -7,13 +7,12 @@ set -e
 AsyncFileTest
 END_COMM
 
-
-FDBCLI="/home/ddi/fdb_binaries_700/fdbcli"
-FDBSERVER="/home/ddi/fdb_binaries_700/fdbserver"
-LIB="/mnt/nvme/nvme0/ddi/liburing/src"
+FDBCLI="/mnt/nvme/nvme0/uringdb/bld/bin/fdbcli"
+FDBSERVER="/mnt/nvme/nvme0/uringdb/bld/bin/fdbserver"
+LIB="/mnt/nvme/nvme0/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
-TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
-CLS="/home/ddi/fdb.flex13"
+TEST="/mnt/nvme/nvme0/uringdb/tests/IOU"
+CLS="/home/ddi/fdb-official/fdb.cluster"
 #device on which  the data and log path are mounted (used for io stat collection)
 DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0/ioutest"
@@ -154,11 +153,11 @@ sec=120
 buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
-for b in "unbuffered" "buffered"; do
-	for c in "uncached" "cached";do
-		for run in 1 2 3 4 5 6 7 8 9 10; do
-			for parallel_reads in 1 10 32 64; do
-				for write_perc in 0 0.1 0.5 1;do
+for b in "unbuffered"; do
+	for c in "uncached";do
+		for run in 1 2 3 4 5; do
+			for parallel_reads in 64; do
+				for write_perc in 0 1;do
 					for io in "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
