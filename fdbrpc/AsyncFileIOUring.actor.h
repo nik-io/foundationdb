@@ -191,6 +191,7 @@ public:
 			throw io_error();
 		}
 		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+		    ctx.init_buffers();
             rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
             if(rc) {
                 throw io_error();
@@ -769,15 +770,15 @@ private:
 		int* buffer_head, *buffer_tail;
 
 		uint32_t opsIssued;
-		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
-			setIOTimeout(0);
-			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+
+		void init_buffer(){
+		    if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 			    fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
 			    if(fixed_buffers == nullptr){
 			        throw io_error();
 			    }
 			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-		    const int buf_size=4096;		    
+		    const int buf_size=4096;
                     fixed_buffers[i].iov_base = malloc(buf_size);
                     if(fixed_buffers[i].iov_base == nullptr){
                         throw io_error();
@@ -794,6 +795,10 @@ private:
 			    }
 			    buffer_head = buffer_tail = buffers_indices;
 			}
+		}
+
+		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
+			setIOTimeout(0);
 		}
 
 		int get_buffer(){
