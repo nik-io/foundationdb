@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 1
+#define IOUring_TRACING 0
 #define AVOID_STALLS 0
 
 enum {
@@ -191,6 +191,7 @@ public:
 			throw io_error();
 		}
 		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+		    ctx.init_buffers();
             rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
             if(rc) {
                 throw io_error();
@@ -542,7 +543,7 @@ public:
 			if (!ctx.submitted) ctx.ioStallBegin = begin;
 
 #if IOUring_TRACING
-			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,to_push);
+			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,n);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -769,41 +770,43 @@ private:
 		int* buffer_head, *buffer_tail;
 
 		uint32_t opsIssued;
-		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
-			setIOTimeout(0);
-			printf("timeout set\n");
-			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+
+		void init_buffers(){
+		    if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 			    fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
 			    if(fixed_buffers == nullptr){
-				    throw io_error();
+			        throw io_error();
 			    }
 			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-				    const int buf_size=4096;		    
-				    fixed_buffers[i].iov_base = malloc(buf_size);
-				    if(fixed_buffers[i].iov_base == nullptr){
-					    throw io_error();
-				    }
-				    fixed_buffers[i].iov_len = buf_size;
-				    memset(fixed_buffers[i].iov_base, 0, buf_size);
-			    }
+		    const int buf_size=4096;
+                    fixed_buffers[i].iov_base = malloc(buf_size);
+                    if(fixed_buffers[i].iov_base == nullptr){
+                        throw io_error();
+                    }
+                    fixed_buffers[i].iov_len = buf_size;
+                    memset(fixed_buffers[i].iov_base, 0, buf_size);
+                }
 			    buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
 			    if(buffers_indices == nullptr){
-				    throw io_error();
+			        throw io_error();
 			    }
 			    for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
-				    buffers_indices[i]=i;
+			        buffers_indices[i]=i;
 			    }
 			    buffer_head = buffer_tail = buffers_indices;
 			}
-			printf("context created\n");fflush(stdout);
+		}
+
+		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
+			setIOTimeout(0);
 		}
 
 		int get_buffer(){
-			int ret = *buffer_head;
-			const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-			buffer_head++;
-			if(buffer_head > roll) buffer_tail=buffers_indices;
-			return ret;
+		    int ret = *buffer_head;
+		    const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+		    buffer_head++;
+		    if(buffer_head > roll) buffer_tail=buffers_indices;
+		    return ret;
 		}
 
 		void  release_buffer(int buffer){

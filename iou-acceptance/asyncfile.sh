@@ -12,7 +12,7 @@ FDBSERVER="/mnt/nvme/nvme0/uringdb/bld/bin/fdbserver"
 LIB="/mnt/nvme/nvme0/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
 TEST="/mnt/nvme/nvme0/uringdb/tests/IOU"
-CLS="/home/ddi/fdb-official/fdb.cluster"
+CLS="/home/ddi/fdb-official/fdb.zac13"
 #device on which  the data and log path are mounted (used for io stat collection)
 DEV="nvme0n1"
 DATALOGPATH="/mnt/nvme/nvme0/ioutest"
@@ -86,7 +86,7 @@ spawn(){
 setup_test(){
     pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
 	if [[ $1 == "io_uring" ]]; then
-		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
+		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc} --knob_io_uring_fixed_buffers true"
 		echo "URING"
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
