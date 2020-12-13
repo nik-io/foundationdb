@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 1
+#define IOUring_TRACING 0
 #define AVOID_STALLS 0
 
 enum {
@@ -249,9 +249,9 @@ public:
 				}else{
 					io->buffer_index= ctx.get_buffer();
 					io->buffer_index= ctx.get_buffer();
-				    #if IOUring_TRACING
-				    printf("Reading on fixed_buffer %d\n",io->buffer_index);
-                    #endif
+#if IOUring_TRACING
+					printf("Reading on fixed_buffer %d\n",io->buffer_index);
+#endif
 					struct iovec *iov= &(ctx.fixed_buffers[io->buffer_index]);
 					io_uring_prep_read_fixed(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->buffer_index);
 				}
@@ -268,9 +268,9 @@ public:
 
 				int rc = io_uring_submit(&ctx.ring);
 				if(rc<=0){
-				    #if IOUring_TRACING
-				    printf("Direct submit failed on read\n");
-                    #endif
+#if IOUring_TRACING
+					printf("Direct submit failed on read\n");
+#endif
 					//For now, just throw an error
 					throw io_error();
 				}else{
@@ -328,9 +328,9 @@ public:
                     io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
 				    io->buffer_index= ctx.get_buffer();
-				    #if IOUring_TRACING
+#if IOUring_TRACING
 				    printf("Writing on fixed_buffer %d\n",io->buffer_index);
-                    #endif
+#endif
 				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
 				    memcpy(iov->iov_base,io->buf,io->nbytes);
 				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
@@ -785,31 +785,31 @@ private:
 		uint32_t opsIssued;
 
 		void init_buffers(){
-		    if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-			    fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
-			    if(fixed_buffers == nullptr){
-			        printf("could not init buffers\n");
-			        throw io_error();
-			    }
-			    for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-		    const int buf_size=4096;
-                    fixed_buffers[i].iov_base = malloc(buf_size);
-                    if(fixed_buffers[i].iov_base == nullptr){
-                        printf("could not init buffer %d\n",i);
-                        throw io_error();
-                    }
-                    fixed_buffers[i].iov_len = buf_size;
-                    memset(fixed_buffers[i].iov_base, 0, buf_size);
-                }
-			    buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-			    if(buffers_indices == nullptr){
-			        printf("could not init buffer indices\n");
-			        throw io_error();
-			    }
-			    for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
-			        buffers_indices[i]=i;
-			    }
-			    buffer_head = buffer_tail = buffers_indices;
+			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
+				if(fixed_buffers == nullptr){
+					printf("could not init buffers\n");
+					throw io_error();
+				}
+				for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
+					const int buf_size=4096;
+					fixed_buffers[i].iov_base = aligned_alloc(4096,buf_size);
+					if(fixed_buffers[i].iov_base == nullptr){
+						printf("could not init buffer %d\n",i);
+						throw io_error();
+					}
+					fixed_buffers[i].iov_len = buf_size;
+					memset(fixed_buffers[i].iov_base, 0, buf_size);
+				}
+				buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+				if(buffers_indices == nullptr){
+					printf("could not init buffer indices\n");
+					throw io_error();
+				}
+				for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
+					buffers_indices[i]=i;
+				}
+				buffer_head = buffer_tail = buffers_indices;
 			}
 		}
 
@@ -818,18 +818,18 @@ private:
 		}
 
 		int get_buffer(){
-		    int ret = *buffer_head;
-		    const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-		    buffer_head++;
-		    if(buffer_head > roll) buffer_tail=buffers_indices;
-		    return ret;
+			int ret = *buffer_head;
+			const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			buffer_head++;
+			if(buffer_head > roll) buffer_tail=buffers_indices;
+			return ret;
 		}
 
 		void  release_buffer(int buffer){
-		    *buffer_tail = buffer;
-		    const static int *roll =buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-		    buffer_tail++;
-		    if(buffer_tail > roll) buffer_tail=buffers_indices;
+			*buffer_tail = buffer;
+			const static int *roll =buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			buffer_tail++;
+			if(buffer_tail > roll) buffer_tail=buffers_indices;
 		}
 
 		void setIOTimeout(double timeout) {
@@ -924,10 +924,10 @@ private:
 
 	void enqueue( IOBlock* io, const char* op, AsyncFileIOUring* owner ) {
 #if IOUring_TRACING
-	    printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
-		this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
+		printf("URING enquein file %p (io %p) data size %ld off=%ld for op %s on file %s. Uncached is %d\n",
+				this,io, io->nbytes, io->offset,op,owner->filename.c_str(),bool(flags & IAsyncFile::OPEN_UNCACHED));
 #endif
-	    if(io->opcode !=UIO_CMD_FSYNC){
+		if(io->opcode !=UIO_CMD_FSYNC){
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || io->offset % 4096 == 0);
 			ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) ||io->nbytes % 4096 == 0 );
@@ -972,8 +972,8 @@ private:
 				wait(delay(0, TaskPriority::DiskIOComplete));
 				printf("Rescheduled\n");
 			}else{
-			    int64_t ev_r = wait( ev->read());
-			    to_consume=ev_r;
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
 				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
 
@@ -996,21 +996,20 @@ private:
 					break;
 				}
 				//We've got an event. Let's consume it
-
 				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 				ASSERT(iob!=nullptr);
 				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
-					if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-						ctx.removeFromRequestList(iob);
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
+				}
+				if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+				if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+					if(iob->opcode == IO_CMD_PREAD){
+						memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
 					}
-					if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
-					iob->setResult(cqe->res);
-					if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-					    if(iob->opcode == IO_CMD_PREAD){
-					        memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
-					    }
-					    ctx.release_buffer(iob->buffer_index);
-					}
+					ctx.release_buffer(iob->buffer_index);
+				}
+				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
 			}
@@ -1151,8 +1150,8 @@ TEST_CASE("/fdbrpc/AsyncFileIOUring/RequestList") {
 		state Reference<IAsyncFile> f;
 		try {
 			Reference<IAsyncFile> f_ = wait(AsyncFileIOUring::open(
-			    "/tmp/__IOUring_TEST_FILE__",
-			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE, 0666));
+						"/tmp/__IOUring_TEST_FILE__",
+						IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE, 0666));
 			f = f_;
 			state int fileSize = 2 << 27; // ~100MB
 			wait(f->truncate(fileSize));
