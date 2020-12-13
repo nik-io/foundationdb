@@ -18,8 +18,7 @@ srv=/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver
 fi
 cls=/home/ddi/fdb-official/fdb.zac13
 port=4500
-uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_io_uring_fixed_buffers true
-       "
+uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_io_uring_fixed_buffers true"
 #       --knob_io_uring_direct_submit true"
 #       --knob_max_outstanding 1024"
 #flow="--knob_max_outstanding 1024 --knob_min_submit 10"

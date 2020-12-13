@@ -35,7 +35,7 @@ run_test(){
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
     iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
-    {  time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}  ; } > ${RESULTS}/${out} 2>&1 &
+    LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
      #Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
      timepid=$!
      testpid=$(pgrep -P $timepid)
@@ -86,8 +86,11 @@ spawn(){
 setup_test(){
     pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
 	if [[ $1 == "io_uring" ]]; then
-		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc} --knob_io_uring_fixed_buffers true"
+		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc} --knob_io_uring_fixed_buffers false"
 		echo "URING"
+	elif [[ $1 == "io_uring_fixed" ]]; then
+		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc} --knob_io_uring_fixed_buffers true"
+		echo "URING_FIXED"
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
 		echo "KAIO"
@@ -155,10 +158,10 @@ cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
 	for c in "uncached";do
-		for run in 1 2 3 4 5; do
+		for run in 1; do
 			for parallel_reads in 64; do
 				for write_perc in 0 1;do
-					for io in "io_uring" "kaio"; do
+					for io in "io_uring_fixed"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
