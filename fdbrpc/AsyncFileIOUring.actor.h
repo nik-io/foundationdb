@@ -328,10 +328,11 @@ public:
                     io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
 				    io->buffer_index= ctx.get_buffer();
-#if IOUring_TRACING
-				    printf("Writing on fixed_buffer %d\n",io->buffer_index);
-#endif
 				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+#if IOUring_TRACING
+				    printf("IOV %d at address %p\n",io->buffer_index,iov);
+				    printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
+#endif
 				    memcpy(iov->iov_base,io->buf,io->nbytes);
 				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
 				}
@@ -536,7 +537,8 @@ public:
 
 	static void launch() {
 #if IOUring_TRACING
-		printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
+		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
+			printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
 		//W.r.t. KAIO, We don't enforce any min_submit. This reduces the variance in performance
 		//We want to call "submit" if we have stuff in the ctx queue or in the ring queue
@@ -547,8 +549,8 @@ public:
 				to_push=FLOW_KNOBS->MAX_OUTSTANDING-ctx.submitted;
 
 			if(!to_push){
-			    //The ring is full with submitted ops.
-			    return;
+				//The ring is full with submitted ops.
+				return;
 			}
 			ctx.submitMetric = true;
 
@@ -571,46 +573,50 @@ public:
 				IOUringLogBlockEvent(io, OpLogEntry::LAUNCH);
 
 				switch(io->opcode){
-				case UIO_CMD_PREAD:
-				{
+					case UIO_CMD_PREAD:
+						{
 #if IOUring_TRACING
-					printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+							printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-					if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-						struct iovec *iov= &io->iovec;
-						iov->iov_base=io->buf;
-						iov->iov_len=io->nbytes;
-						io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-					}else{
-						io->buffer_index = ctx.get_buffer();
-						struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
-						io_uring_prep_read_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
-					}
-					break;
-				}
-				case UIO_CMD_PWRITE:
-				{
+							if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+								struct iovec *iov= &io->iovec;
+								iov->iov_base=io->buf;
+								iov->iov_len=io->nbytes;
+								io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+							}else{
+								io->buffer_index = ctx.get_buffer();
+								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+								io_uring_prep_read_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+							}
+							break;
+						}
+					case UIO_CMD_PWRITE:
+						{
 #if IOUring_TRACING
-					printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
+							printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				    struct iovec *iov= &io->iovec;
-                    iov->iov_base=io->buf;
-                    iov->iov_len=io->nbytes;
-                    io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
-				}else{
-				    io->buffer_index= ctx.get_buffer();
-				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
-				    memcpy(iov->iov_base,io->buf,io->nbytes);
-				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
-				}
-					break;
-				}
-				case UIO_CMD_FSYNC:
-					io_uring_prep_fsync(sqe, io->aio_fildes, 0);
-					break;
-				default:
-					UNSTOPPABLE_ASSERT(false);
+							if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+								struct iovec *iov= &io->iovec;
+								iov->iov_base=io->buf;
+								iov->iov_len=io->nbytes;
+								io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+							}else{
+								io->buffer_index= ctx.get_buffer();
+								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+
+#if IOUring_TRACING
+								printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
+#endif
+								memcpy(iov->iov_base,io->buf,io->nbytes);
+								io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+							}
+							break;
+						}
+					case UIO_CMD_FSYNC:
+						io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+						break;
+					default:
+						UNSTOPPABLE_ASSERT(false);
 				}
 				ctx.queue.pop();
 				io_uring_sqe_set_data(sqe, io);
@@ -631,7 +637,7 @@ public:
 			int rc = io_uring_submit(&ctx.ring);
 			double end = timer_monotonic();
 			if (rc <=0 || rc < i){
-			    //Error if rc<0 or if it undersubmits w.r.t. what we want to push
+				//Error if rc<0 or if it undersubmits w.r.t. what we want to push
 				printf("io_uring_submit error %d %s\n", rc, strerror(-rc));
 				//If error is EAGAIN maybe we could just loop ocer and retry, but for now we crash on error
 				//It is not clear how io_uring handles cqes that are prepared but not pushed
@@ -667,7 +673,7 @@ public:
 			double elapsed = timer_monotonic() - begin;
 
 			g_network->networkInfo.metrics.secSquaredSubmit += elapsed*elapsed/2;
-            ctx.submitted += rc;
+			ctx.submitted += rc;
 		}
 	}
 
@@ -798,6 +804,10 @@ private:
 						printf("could not init buffer %d\n",i);
 						throw io_error();
 					}
+
+#if IOUring_TRACING
+					printf("Buffer %d at address %p and base at address %p\n",i,&fixed_buffers[i],fixed_buffers[i].iov_base);
+#endif
 					fixed_buffers[i].iov_len = buf_size;
 					memset(fixed_buffers[i].iov_base, 0, buf_size);
 				}
@@ -818,18 +828,24 @@ private:
 		}
 
 		int get_buffer(){
+#if IOUring_TRACING
+			printf("Getting buffer %d (position %d)\n", *buffer_head, ((unsigned long)buffer_head-(unsigned long)buffers_indices)/sizeof(int));
+#endif
 			int ret = *buffer_head;
-			const static int *roll = buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			const static int *roll = buffers_indices + FLOW_KNOBS->MAX_OUTSTANDING;
 			buffer_head++;
-			if(buffer_head > roll) buffer_tail=buffers_indices;
+			if(buffer_head >= roll) buffer_head=buffers_indices;
 			return ret;
 		}
 
 		void  release_buffer(int buffer){
+#if IOUring_TRACING
+			printf("Releasing buffer %d (position %d)\n", buffer, ((unsigned long)buffer_tail-(unsigned long)buffers_indices)/sizeof(int));
+#endif
 			*buffer_tail = buffer;
-			const static int *roll =buffers_indices + (FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
+			const static int *roll =buffers_indices + FLOW_KNOBS->MAX_OUTSTANDING;
 			buffer_tail++;
-			if(buffer_tail > roll) buffer_tail=buffers_indices;
+			if(buffer_tail >= roll) buffer_tail=buffers_indices;
 		}
 
 		void setIOTimeout(double timeout) {
@@ -1006,8 +1022,10 @@ private:
 				if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 					if(iob->opcode == IO_CMD_PREAD){
 						memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
+						ctx.release_buffer(iob->buffer_index);
 					}
-					ctx.release_buffer(iob->buffer_index);
+					else if(iob->opcode == IO_CMD_PWRITE)
+						ctx.release_buffer(iob->buffer_index);
 				}
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);

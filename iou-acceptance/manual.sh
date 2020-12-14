@@ -18,7 +18,7 @@ srv=/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver
 fi
 cls=/home/ddi/fdb-official/fdb.zac13
 port=4500
-uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_io_uring_fixed_buffers true"
+uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_io_uring_fixed_buffers true --knob_max_outstanding 16"
 #       --knob_io_uring_direct_submit true"
 #       --knob_max_outstanding 1024"
 #flow="--knob_max_outstanding 1024 --knob_min_submit 10"
@@ -33,7 +33,7 @@ spawn(){
     if [[ ${deploy} == "single" ]];then
         echo "Deploying single-process fdb"
         mkdir /mnt/nvme/nvme0/data_ddi/$port
-        LD_LIBRARY_PATH=${lb} ${srv} -C ${cls} --datadir /mnt/nvme/nvme0/data_ddi/${port}  --listen_address public \
+        LD_LIBRARY_PATH=${lb} gdb -ex run --args ${srv} -C ${cls} --datadir /mnt/nvme/nvme0/data_ddi/${port}  --listen_address public \
         --logdir /mnt/nvme/nvme0/log_ddi --public_address auto:${port} --knob_page_cache_4k 104857600 --storage_memory 4GB \
         --memory 16GB --knob_cache_eviction_policy random --knob_max_evict_attempts 100 ${uring} ${flow} 
     else
@@ -111,7 +111,7 @@ spawn(){
 create_db(){
 
 if [[ ${version} == 700 ]];then
-    LD_LIBRARY_PATH=/home/ddi/uring_binaries/ ~/uring_binaries/fdbcli -C ${cls} --exec "configure new single ssd-2"
+    LD_LIBRARY_PATH=${lb} /mnt/nvme/nvme0/uringdb/bld/bin/fdbcli -C ${cls} --exec "configure new single ssd-2"
 elif [[ ${version} == 620 ]];then
     LD_LIBRARY_PATH=/home/ddi/ikvb/lib/fdb/620 ~/fdb_binaries_620/fdbcli -C ${cls} --exec "configure new single ssd-2"
 else
