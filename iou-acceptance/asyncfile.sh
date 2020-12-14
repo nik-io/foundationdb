@@ -35,7 +35,9 @@ run_test(){
     #spawn the orchestrator
     #https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
     iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
-    LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
+    
+    {  time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}  ; } > ${RESULTS}/${out} 2>&1 &
+    #LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
      #Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
      timepid=$!
      testpid=$(pgrep -P $timepid)
@@ -58,9 +60,9 @@ spawn(){
     port=4500
 
     #remove the old test file
-    fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
-    echo "removing ${fn}"
-    rm ${fn} || true
+    #fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
+    #echo "removing ${fn}"
+    #rm ${fn} || true
 
 
     mkdir -p ${DATALOGPATH}
@@ -121,6 +123,7 @@ run_one(){
     uncached=$5  #true/false
     write_fraction=$6
     run=${7}
+    CORE=1
 
     out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_r=${run}.txt"
     echo ${out_file}
@@ -158,10 +161,10 @@ cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
 	for c in "uncached";do
-		for run in 1; do
+		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
 				for write_perc in 0 1;do
-					for io in "io_uring_fixed"; do
+					for io in "io_uring_fixed" "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc

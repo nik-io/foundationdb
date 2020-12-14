@@ -318,23 +318,23 @@ public:
 				printf("Enqueueing due to failed get_sqe\n");
 #endif
 				enqueue(io, "write", this);
-            }else{
+			}else{
 				io->startTime = startT;
 
 				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				    struct iovec *iov= &io->iovec;
-                    iov->iov_base=io->buf;
-                    iov->iov_len=io->nbytes;
-                    io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+					struct iovec *iov= &io->iovec;
+					iov->iov_base=io->buf;
+					iov->iov_len=io->nbytes;
+					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
 				}else{
-				    io->buffer_index= ctx.get_buffer();
-				    struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
+					io->buffer_index= ctx.get_buffer();
+					struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
 #if IOUring_TRACING
-				    printf("IOV %d at address %p\n",io->buffer_index,iov);
-				    printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
+					printf("IOV %d at address %p\n",io->buffer_index,iov);
+					printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
 #endif
-				    memcpy(iov->iov_base,io->buf,io->nbytes);
-				    io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+					memcpy(iov->iov_base,io->buf,io->nbytes);
+					io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
 				}
 				io_uring_sqe_set_data(sqe, io);
 
@@ -798,7 +798,8 @@ private:
 					throw io_error();
 				}
 				for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-					const int buf_size=4096;
+					//Biggest chunk I could find (in AsyncFile::openFile)
+					const int buf_size=4<<16;
 					fixed_buffers[i].iov_base = aligned_alloc(4096,buf_size);
 					if(fixed_buffers[i].iov_base == nullptr){
 						printf("could not init buffer %d\n",i);
