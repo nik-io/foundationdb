@@ -31,7 +31,7 @@ testport=
 uring=""
 uring_srv=""
 
-storages=3
+storages=1
 
 run_test(){
 	out=${1}
@@ -91,7 +91,7 @@ spawn(){
 		CORE=$(( $CORE + 1 ))
 		port=$(( ${port} + 1 ))
 		mkdir -p ${data_dir}/${port} || true
-		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C storage -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 	done	
 
 	CORE=$(( $CORE + 1 ))
@@ -100,8 +100,9 @@ spawn(){
 	sleep 5 #give time to join the cluster
 
 	#create the db
-	if [[ $kv == "redwood" ]];then $kvs = "ssd-redwood-experimental"; else $kvs="ssd-2";fi
-	LD_LIBRARY_PATH=${lb} ${cli} -C ${cls} --exec "configure new single ${kvs}"
+	if [[ $kv == "redwood" ]];then kvs = "ssd-redwood-experimental"; else kvs="ssd-2";fi
+	LD_LIBRARY_PATH=${LIB} ${FDBCLI} -C ${CLS} --exec "configure new single ${kvs}"
+	sleep 5
 }
 
 setup_test(){
@@ -165,7 +166,7 @@ ops=10
 for run in 1 2 3;do
 	for wr in 0 1 9; do
 		for kv in "sqlite" "redwood";do
-			for io in "uring" "kaio";do
+			for io in "io_uring" "kaio";do
 				rd=$(( $ops - $wr ))
 				run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
 			done
