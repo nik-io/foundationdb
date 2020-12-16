@@ -76,12 +76,26 @@ spawn(){
     mkdir -p ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
     CORE=$(( $CORE + 1 ))
-
+    
     #spawn the test role
     port=$((${port}+1))
     mkdir ${data_dir}/${port} || true
     LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
     CORE=$(( $CORE + 1 ))
+
+    return
+
+    port=$((${port}+1))
+    mkdir ${data_dir}/${port} || true
+    LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+    CORE=$(( $CORE + 1 ))
+
+
+    port=$((${port}+1))
+    mkdir ${data_dir}/${port} || true
+    LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+    CORE=$(( $CORE + 1 ))
+
 
     sleep 5 #give time to join the cluster
 
@@ -149,27 +163,22 @@ run_one(){
 
 	spawn
 
-	time run_test ${out_file} "${uring}"
-	#cat ${timing} >> ${out_file}
-	#kill server and iostat
-	pkill -9 fdbserver
-	pkill -9 iostat
+	#run_test ${out_file} "${uring}"
+	echo "spawned"
+	echo "Now run sth like taskset -c 3 /mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver -r multitest -f /mnt/nvme/nvme0/ddi/uringdb/tests/IOU.txt -C /home/ddi/fdb.flex14 --memory 4GB --knob_page_cache_4k 10485760 --logdir=/mnt/nvme/nvme0/ioutest"
 
-    #copy the xml file
-    xml=$(ls ${DATALOGPATH}/*xml | tail -n1)
-    cp $xml $RESULTS/$out_file.xml
 }
 
-sec=30
+sec=3000
 buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
 	for c in "uncached";do
-		for run in 1 2 3 4 5; do
+		for run in 1; do
 			for parallel_reads in 64; do
-				for write_perc in 0 1;do
-					for io in  "io_uring" "kaio"; do
+				for write_perc in 0 ;do
+					for io in  "io_uring"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc

@@ -248,7 +248,6 @@ public:
 					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
 				}else{
 					io->buffer_index= ctx.get_buffer();
-					io->buffer_index= ctx.get_buffer();
 #if IOUring_TRACING
 					printf("Reading on fixed_buffer %d\n",io->buffer_index);
 #endif
