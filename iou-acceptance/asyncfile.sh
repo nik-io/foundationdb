@@ -21,10 +21,12 @@ PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}"
-RESULTS="res"
 mkdir -p ${RESULTS} || exit 1
-CORE=1
+port=4500
 
+CORE=
+testpid=
+testport=
 
 uring=""
 uring_srv=""
@@ -39,51 +41,53 @@ run_test(){
 	iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
 
 	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out}.1 2>&1 &
-	CORE=$(( $CORE + 1 ))
-	#	LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}   > ${RESULTS}/${out}.2 2>&1 &
-	#LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
-	#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
+		#LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
+		#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
 	timepid=$!
-	testpid=$(pgrep -P $timepid)
-	echo "test pid ${testpid}"
+	orchpid=$(pgrep -P $timepid)
+	echo "orch pid ${orchpid}"
 	CORE=$(( $CORE + 1 ))
-	while kill -0 $testpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
+	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
 }
 
 
 
 
 spawn(){
-
 	pkill -9 fdbserver || true    #if nothing is killed, error is returned
+	pkill -9 iostat || true
+	pkill -9 pstat || true
+
 	sleep 1
 
-	data_dir=${DATALOGPATH}"/tmp_dir"
+	data_dir=${DATALOGPATH}
 
 
-	port=4500
 
-    #remove the old test file
-    #fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
-    #echo "removing ${fn}"
-    #rm ${fn} || true
+	#remove the old test file
+	#fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
+	#echo "removing ${fn}"
+	#rm ${fn} || true
 
 
-    mkdir -p ${DATALOGPATH}
-    echo "removing ${DATALOGPATH}/*"
-    rm -rf ${DATALOGPATH}/*
-    #spawn one-process cluster
-    mkdir -p ${data_dir}/${port} || true
-    LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-    CORE=$(( $CORE + 1 ))
+	mkdir -p ${DATALOGPATH}
+	echo "removing ${DATALOGPATH}/*"
+	rm -rf ${DATALOGPATH}/*
+	#spawn one-process cluster
+	mkdir -p ${data_dir}/${port} || true
+	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	CORE=$(( $CORE + 1 ))
 
-    #spawn the test role
-    port=$((${port}+1))
-    mkdir ${data_dir}/${port} || true
-    LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-    CORE=$(( $CORE + 1 ))
+	#spawn the test role
+	port=$((${port}+1))
+	mkdir ${data_dir}/${port} || true
+	LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	testpid=$!
+	testport=${port}
+	echo "Test pid is $testpid"
+	CORE=$(( $CORE + 1 ))
 
-    sleep 5 #give time to join the cluster
+	sleep 5 #give time to join the cluster
 
     #create the db
     #LD_LIBRARY_PATH=${lb} ${cli} -C ${cls} --exec "configure new single ssd-2"
@@ -94,9 +98,6 @@ setup_test(){
 	if [[ $1 == "io_uring" ]]; then
 		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
 		echo "URING"
-	elif [[ $1 == "io_uring_fixed" ]]; then
-		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc} --knob_io_uring_fixed_buffers true"
-		echo "URING_FIXED"
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
 		echo "KAIO"
@@ -128,7 +129,7 @@ run_one(){
 	uncached=$5  #true/false
 	write_fraction=$6
 	run=${7}
-	CORE=1
+	CORE=0
 
 	out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_r=${run}.txt"
 	echo ${out_file}
@@ -155,17 +156,17 @@ run_one(){
 	pkill -9 fdbserver
 	pkill -9 iostat
 
-    #copy the xml file
-    xml=$(ls ${DATALOGPATH}/*xml | tail -n1)
-    cp $xml $RESULTS/$out_file.xml
+	#copy the xml file of the test server 
+	xml=$(ls ${DATALOGPATH}/${testport}/*xml | tail -n1)
+	cp $xml $RESULTS/$out_file.xml
 }
 
-sec=30
+sec=60
 buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached";do
+	for c in "cached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
 				for write_perc in 0 1;do
