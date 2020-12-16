@@ -129,7 +129,7 @@ run_one(){
 	uncached=$5  #true/false
 	write_fraction=$6
 	run=${7}
-	CORE=0
+	CORE=1
 	port=4500
 
 	out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_r=${run}.txt"
