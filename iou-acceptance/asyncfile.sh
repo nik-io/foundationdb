@@ -22,7 +22,7 @@ RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}"
 mkdir -p ${RESULTS} || exit 1
-port=4500
+port=
 
 CORE=
 testpid=
@@ -40,7 +40,7 @@ run_test(){
 	#https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
 	iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
 
-	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out}.1 2>&1 &
+	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out} 2>&1 &
 		#LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
 		#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
 	timepid=$!
@@ -130,6 +130,7 @@ run_one(){
 	write_fraction=$6
 	run=${7}
 	CORE=0
+	port=4500
 
 	out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_r=${run}.txt"
 	echo ${out_file}
