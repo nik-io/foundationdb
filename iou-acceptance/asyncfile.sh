@@ -7,16 +7,17 @@ set -e
 AsyncFileTest
 END_COMM
 
-FDBCLI="/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbcli"
-FDBSERVER="/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver"
-LIB="/mnt/nvme/nvme0/ddi/uringdb/liburing/src"
+FDBCLI="/mnt/ddi/uringdb/bld/bin/fdbcli"
+FDBSERVER="/mnt/ddi/uringdb/bld/bin/fdbserver"
+LIB="/mnt/ddi/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
-TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/IOU"
+TEST="/mnt/ddi/uringdb/tests/IOU"
 CLS="/home/ddi/fdb.flex14"
 #device on which  the data and log path are mounted (used for io stat collection)
+MOUNT_POINT="/mnt/nvme/nvme0/"
 DEV="nvme0n1"
-DATALOGPATH="/mnt/nvme/nvme0/ioutest"
-FILEPATH="/mnt/nvme/nvme0/testfiles"
+DATALOGPATH=${MOUNT_POINT}"ioutest"
+FILEPATH=${MOUNT_POINT}"testfiles"
 PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
@@ -29,7 +30,25 @@ testpid=
 testport=
 
 uring=""
-uring_srv=""
+
+TRIM=1
+#If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
+#Be sure that the name of the file matches the field in the test file
+PRE_TEST_FILE="/mnt/ddi/file.dat"
+
+if [[ $TRIM == 1 ]]; then
+    #Keepalive for sudo. https://gist.github.com/cowboy/3118588
+    # Might as well ask for password up-front, right?
+    sudo -v
+
+    # Keep-alive: update existing sudo time stamp if set, otherwise do nothing.
+    while true; do
+      sudo -n true
+      sleep 60
+      kill -0 "$$" || exit
+    done 2>/dev/null &
+fi
+
 
 run_test(){
 	out=${1}
@@ -51,8 +70,6 @@ run_test(){
 }
 
 
-
-
 spawn(){
 	pkill -9 fdbserver || true    #if nothing is killed, error is returned
 	pkill -9 iostat || true
@@ -65,9 +82,14 @@ spawn(){
 
 
 	#remove the old test file
-	#fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
+	fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
 	#echo "removing ${fn}"
 	#rm ${fn} || true
+
+	if [[ $TRIM == 1 ]];then
+	    echo "Copying $fn to $PRE_TEST_FILE"
+	    cp $PRE_TEST_FILE $fn
+	fi
 
 
 	mkdir -p ${DATALOGPATH}
@@ -75,13 +97,13 @@ spawn(){
 	rm -rf ${DATALOGPATH}/*
 	#spawn one-process cluster
 	mkdir -p ${data_dir}/${port} || true
-	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 	CORE=$(( $CORE + 1 ))
 
 	#spawn the test role
 	port=$((${port}+1))
 	mkdir ${data_dir}/${port} || true
-	LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 	testpid=$!
 	testport=${port}
 	echo "Test pid is $testpid"
@@ -94,6 +116,27 @@ spawn(){
 }
 
 setup_test(){
+    if [[ $TRIM == 1 ]];then
+    echo "Trimming /dev/$DEV"
+    sudo umount $MOUNT_POINT
+    if [[ $? -ne 0 ]]; then
+        echo "umount ${MOUNT_POINT} failed"
+        exit 1
+    fi
+    sudo /sbin/blkdiscard /dev/$DEV
+    yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
+    if [[ $? -ne 0 ]]; then
+        echo "ext4 failed"
+        exit 1
+      fi
+    fi
+    sudo mount $MOUNT_POINT
+    if [[ $? -ne 0 ]]; then
+        echo "mount ${MOUNT_POINT} failed"
+        exit 1
+    fi
+
+
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
 	if [[ $1 == "io_uring" ]]; then
 		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
@@ -105,8 +148,6 @@ setup_test(){
 		echo "Mode not supported. Use either io_uring or kaio"
 		exit 1
 	fi
-
-	uring_srv=${uring}
 
 	mkdir -p $FILEPATH
 	cp ${TEST}.stub ${TEST}.txt
@@ -170,7 +211,7 @@ for b in "unbuffered"; do
 	for c in "uncached" "cached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 1 32 64; do
-				for write_perc in 0 0.5;do
+				for write_perc in 0 0.5 1;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
