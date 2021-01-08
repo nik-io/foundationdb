@@ -14,15 +14,15 @@ LIB="/mnt/ddi/uringdb/liburing/src"
 TEST="/mnt/ddi/uringdb/tests/IOU"
 CLS="/home/ddi/fdb-official/fdb.zac13"
 #device on which  the data and log path are mounted (used for io stat collection)
-MOUNT_POINT="/mnt/nvme/nvme0/"
+MOUNT_POINT="/mnt/nvme/nvme0"
 DEV="nvme0n1"
-DATALOGPATH=${MOUNT_POINT}"ioutest"
-FILEPATH=${MOUNT_POINT}"testfiles"
+DATALOGPATH=${MOUNT_POINT}"/ioutest"
+FILEPATH=${MOUNT_POINT}"/testfiles"
 PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-ASYNC"
-RESULTS="ttestt5"
+#RESULTS="ttestt6"
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -37,19 +37,6 @@ TRIM=1
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
 USERGROUP="ddi:sto"
-
-if [[ $TRIM == 1 ]]; then
-	#Keepalive for sudo. https://gist.github.com/cowboy/3118588
-	# Might as well ask for password up-front, right?
-	sudo -v
-
-    # Keep-alive: update existing sudo time stamp if set, otherwise do nothing.
-    while true; do
-	    sudo -n true
-	    sleep 60
-	    kill -0 "$$" || exit
-    done 2>/dev/null &
-fi
 
 
 run_test(){
@@ -91,19 +78,21 @@ spawn(){
 	#echo "removing ${fn}"
 	#rm ${fn} || true
 
-#	if [[ $TRIM == 1 ]];then
-#		echo "Copying $fn to $PRE_TEST_FILE"
-#		cp $PRE_TEST_FILE $fn
-#	fi
+	if [[ $TRIM == 1 ]];then
+		echo "Copying $fn to $PRE_TEST_FILE"
+		cp $PRE_TEST_FILE $fn
+		echo "Finished copying"
+		while [ "$(iostat 1 1 -y| grep $DEV  | awk {'print $4'})" != "0.00" ] ;do echo "not quiescent" ;sleep 5; done
+	fi
 
 
-mkdir -p ${DATALOGPATH}
-echo "removing ${DATALOGPATH}/*"
-rm -rf ${DATALOGPATH}/*
-#spawn one-process cluster
-mkdir -p ${data_dir}/${port} || true
-LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-CORE=$(( $CORE + 1 ))
+	mkdir -p ${DATALOGPATH}
+	echo "removing ${DATALOGPATH}/*"
+	rm -rf ${DATALOGPATH}/*
+	#spawn one-process cluster
+	mkdir -p ${data_dir}/${port} || true
+	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	CORE=$(( $CORE + 1 ))
 
 	#spawn the test role
 	port=$((${port}+1))
@@ -123,10 +112,15 @@ CORE=$(( $CORE + 1 ))
 setup_test(){
 	if [[ $TRIM == 1 ]];then
 		echo "Trimming /dev/$DEV"
-		sudo umount $MOUNT_POINT || true
-		if [[ $? -ne 0 ]]; then
-			echo "umount ${MOUNT_POINT} failed"
+		um=$(mount | grep $MOUNT_POINT)
+		if [[ -n "$um" ]];then
+			echo "umounting $MOUNT_POINT"
+			sudo umount $MOUNT_POINT 
+			ret=$?
+			if [[ $ret -ne 0 ]]; then
+				echo "umount ${MOUNT_POINT} failed with ret $ret"
 			exit 1
+			fi
 		fi
 		sudo /sbin/blkdiscard /dev/$DEV
 		yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
@@ -210,15 +204,31 @@ run_one(){
 	cp $xml $RESULTS/$out_file.xml
 }
 
-sec=60
+# Starts here
+pkill -9 -f fdbserver
+sleep 1
+if [[ $TRIM == 1 ]]; then
+	#Keepalive for sudo. https://gist.github.com/cowboy/3118588
+	# Might as well ask for password up-front, right?
+	sudo -v
+
+    # Keep-alive: update existing sudo time stamp if set, otherwise do nothing.
+    while true; do
+	    sudo -n true
+	    sleep 60
+	    kill -0 "$$" || exit
+    done 2>/dev/null &
+fi
+
+sec=90
 buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached";do
+	for c in "uncached" "cached";do
 		for run in 1 2 3 4 5; do
-			for parallel_reads in 64; do
-				for write_perc in 0;do
+			for parallel_reads in 1 32  64; do
+				for write_perc in 0 0.5 1;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
