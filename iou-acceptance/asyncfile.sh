@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #!/usr/bin/env bash
 #set -x
-set -e
+#set -e
 
 <<END_COMM
 AsyncFileTest
@@ -12,7 +12,7 @@ FDBSERVER="/mnt/ddi/uringdb/bld/bin/fdbserver"
 LIB="/mnt/ddi/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
 TEST="/mnt/ddi/uringdb/tests/IOU"
-CLS="/home/ddi/fdb.flex14"
+CLS="/home/ddi/fdb-official/fdb.zac13"
 #device on which  the data and log path are mounted (used for io stat collection)
 MOUNT_POINT="/mnt/nvme/nvme0/"
 DEV="nvme0n1"
@@ -21,7 +21,8 @@ FILEPATH=${MOUNT_POINT}"testfiles"
 PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
-RESULTS="${RESULTS}-${hn}"
+RESULTS="${RESULTS}-${hn}-ASYNC"
+RESULTS="ttestt5"
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -35,17 +36,18 @@ TRIM=1
 #If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
+USERGROUP="ddi:sto"
 
 if [[ $TRIM == 1 ]]; then
-    #Keepalive for sudo. https://gist.github.com/cowboy/3118588
-    # Might as well ask for password up-front, right?
-    sudo -v
+	#Keepalive for sudo. https://gist.github.com/cowboy/3118588
+	# Might as well ask for password up-front, right?
+	sudo -v
 
     # Keep-alive: update existing sudo time stamp if set, otherwise do nothing.
     while true; do
-      sudo -n true
-      sleep 60
-      kill -0 "$$" || exit
+	    sudo -n true
+	    sleep 60
+	    kill -0 "$$" || exit
     done 2>/dev/null &
 fi
 
@@ -62,12 +64,15 @@ run_test(){
 	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out} 2>&1 &
 		#LD_LIBRARY_PATH=${LIB} gdb -ex run --args  ${FDBSERVER}  -r test -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH}
 		#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
-	timepid=$!
-	orchpid=$(pgrep -P $timepid)
-	echo "orch pid ${orchpid}"
-	CORE=$(( $CORE + 1 ))
-	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
-}
+		timepid=$!
+		orchpid=$(pgrep -P $timepid)
+		echo "orch pid ${orchpid}"
+		CORE=$(( $CORE + 1 ))
+		if [[ -z $orchpid ]];then
+			exit 1  #we exit so that we can replicate the last orchestrator command and see what is what
+		fi
+		while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
+	}
 
 
 spawn(){
@@ -86,19 +91,19 @@ spawn(){
 	#echo "removing ${fn}"
 	#rm ${fn} || true
 
-	if [[ $TRIM == 1 ]];then
-	    echo "Copying $fn to $PRE_TEST_FILE"
-	    cp $PRE_TEST_FILE $fn
-	fi
+#	if [[ $TRIM == 1 ]];then
+#		echo "Copying $fn to $PRE_TEST_FILE"
+#		cp $PRE_TEST_FILE $fn
+#	fi
 
 
-	mkdir -p ${DATALOGPATH}
-	echo "removing ${DATALOGPATH}/*"
-	rm -rf ${DATALOGPATH}/*
-	#spawn one-process cluster
-	mkdir -p ${data_dir}/${port} || true
-	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-	CORE=$(( $CORE + 1 ))
+mkdir -p ${DATALOGPATH}
+echo "removing ${DATALOGPATH}/*"
+rm -rf ${DATALOGPATH}/*
+#spawn one-process cluster
+mkdir -p ${data_dir}/${port} || true
+LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+CORE=$(( $CORE + 1 ))
 
 	#spawn the test role
 	port=$((${port}+1))
@@ -116,25 +121,27 @@ spawn(){
 }
 
 setup_test(){
-    if [[ $TRIM == 1 ]];then
-    echo "Trimming /dev/$DEV"
-    sudo umount $MOUNT_POINT
-    if [[ $? -ne 0 ]]; then
-        echo "umount ${MOUNT_POINT} failed"
-        exit 1
-    fi
-    sudo /sbin/blkdiscard /dev/$DEV
-    yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
-    if [[ $? -ne 0 ]]; then
-        echo "ext4 failed"
-        exit 1
-      fi
-    fi
-    sudo mount $MOUNT_POINT
-    if [[ $? -ne 0 ]]; then
-        echo "mount ${MOUNT_POINT} failed"
-        exit 1
-    fi
+	if [[ $TRIM == 1 ]];then
+		echo "Trimming /dev/$DEV"
+		sudo umount $MOUNT_POINT || true
+		if [[ $? -ne 0 ]]; then
+			echo "umount ${MOUNT_POINT} failed"
+			exit 1
+		fi
+		sudo /sbin/blkdiscard /dev/$DEV
+		yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
+		if [[ $? -ne 0 ]]; then
+			echo "ext4 failed"
+			exit 1
+		fi
+	fi
+	sudo mount /dev/$DEV $MOUNT_POINT
+	if [[ $? -ne 0 ]]; then
+		echo "mount ${MOUNT_POINT} failed"
+		exit 1
+	fi
+
+	sudo chown -R $USERGROUP ${MOUNT_POINT}
 
 
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
@@ -208,10 +215,10 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached" "cached";do
+	for c in "uncached";do
 		for run in 1 2 3 4 5; do
-			for parallel_reads in 1 32 64; do
-				for write_perc in 0 0.5 1;do
+			for parallel_reads in 64; do
+				for write_perc in 0;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
