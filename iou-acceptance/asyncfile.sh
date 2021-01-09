@@ -83,7 +83,7 @@ spawn(){
 		echo "Copying $fn to $PRE_TEST_FILE"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
-		while [ "$(iostat 1 1 -y| grep $DEV  | awk {'print $4'})" != "0.00" ] ;do echo "not quiescent" ;sleep 5; done
+		while [ ! $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) ];do echo "not quiescent" ;sleep 5; done
 	fi
 
 
@@ -230,7 +230,7 @@ for b in "unbuffered"; do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
 				for write_perc in 1;do
-					for io in  "kaio" "io_uring"; do
+					for io in  "io_uring"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
