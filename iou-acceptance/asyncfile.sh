@@ -22,7 +22,7 @@ PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-ASYNC"
-#RESULTS="ttestt6"
+RESULTS="debug"
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -32,7 +32,7 @@ testport=
 
 uring=""
 
-TRIM=1
+TRIM=0
 #If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
@@ -78,7 +78,8 @@ spawn(){
 	#echo "removing ${fn}"
 	#rm ${fn} || true
 
-	if [[ $TRIM == 1 ]];then
+	#if [[ $TRIM == 1 ]];then
+	if [[ true ]]; then
 		echo "Copying $fn to $PRE_TEST_FILE"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
@@ -128,14 +129,14 @@ setup_test(){
 			echo "ext4 failed"
 			exit 1
 		fi
-	fi
-	sudo mount /dev/$DEV $MOUNT_POINT
-	if [[ $? -ne 0 ]]; then
-		echo "mount ${MOUNT_POINT} failed"
-		exit 1
+		sudo mount /dev/$DEV $MOUNT_POINT
+		if [[ $? -ne 0 ]]; then
+			echo "mount ${MOUNT_POINT} failed"
+			exit 1
+		fi
+		sudo chown -R $USERGROUP ${MOUNT_POINT}
 	fi
 
-	sudo chown -R $USERGROUP ${MOUNT_POINT}
 
 
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
@@ -225,11 +226,11 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached" "cached";do
+	for c in "uncached";do
 		for run in 1 2 3 4 5; do
-			for parallel_reads in 1 32  64; do
-				for write_perc in 0 0.5 1;do
-					for io in  "io_uring" "kaio"; do
+			for parallel_reads in 64; do
+				for write_perc in 1;do
+					for io in  "kaio" "io_uring"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
