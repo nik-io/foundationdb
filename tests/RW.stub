@@ -1,0 +1,10 @@
+testTitle=RandomReadWriteTest
+    testName=ReadWrite
+    testDuration=TEST_DURATION
+    transactionsPerSecond=2500
+    writesPerTransactionA=WRITES_PER_TX
+    readsPerTransactionA=READS_PER_TX
+    alpha=0
+    nodeCount=1000000
+    valueBytes=512
+    discardEdgeMeasurements=false
