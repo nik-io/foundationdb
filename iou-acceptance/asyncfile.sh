@@ -8,6 +8,16 @@ AsyncFileTest
 END_COMM
 
 source config.sh || exit 1
+
+#read -p "You have selected $DEV as device and $MOUNT_POINT as mount point. Continuing might wipe them. Are you sureyou want to go on? (y/n)" yn
+#select yn in "y" "n"; do
+#case $yn in
+#	[Nn]*) exit ;;
+#	[Yy]*) echo "Copy that" ;;
+#	# Matching with invalid data
+#	*) echo "Invalid reply (y/n)." && exit 1 ;;
+#esac
+
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -17,7 +27,7 @@ testport=
 
 uring=""
 
-TRIM=0
+TRIM=1
 #If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
@@ -68,7 +78,7 @@ spawn(){
 		echo "Copying $fn to $PRE_TEST_FILE"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
-		while [ ! $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) ];do echo "not quiescent" ;sleep 5; done
+		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
 	fi
 
 
@@ -211,11 +221,11 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached";do
+	for c in "uncached" "cached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
-				for write_perc in 1;do
-					for io in  "io_uring"; do
+				for write_perc in 0 0.5 1;do
+					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
