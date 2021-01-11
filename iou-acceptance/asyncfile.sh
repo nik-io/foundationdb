@@ -27,7 +27,7 @@ testport=
 
 uring=""
 
-TRIM=1
+TRIM=0
 #If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
@@ -73,11 +73,12 @@ spawn(){
 	#echo "removing ${fn}"
 	#rm ${fn} || true
 
-	#if [[ $TRIM == 1 ]];then
-	if [[ true ]]; then
+	if [[ $TRIM == 1 ]];then
+	#if [[ true ]]; then
 		echo "Copying $fn to $PRE_TEST_FILE"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
+		sync $fn
 		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
 	fi
 
@@ -107,17 +108,23 @@ spawn(){
 
 setup_test(){
 	if [[ $TRIM == 1 ]];then
-		echo "Trimming /dev/$DEV"
-		um=$(mount | grep $MOUNT_POINT)
-		if [[ -n "$um" ]];then
+		mount | grep -qs $MOUNT_POINT
+		if [ $? -eq 0 ];then
 			echo "umounting $MOUNT_POINT"
-			sudo umount $MOUNT_POINT 
-			ret=$?
-			if [[ $ret -ne 0 ]]; then
-				echo "umount ${MOUNT_POINT} failed with ret $ret"
-			exit 1
-			fi
+
+			while true;do
+				sudo umount $MOUNT_POINT
+				ret=$?
+				if [[ $ret -ne 0 ]]; then
+					echo "umount ${MOUNT_POINT} failed with ret $ret"
+					sleep 10
+				else
+					break
+				fi
+			done
 		fi
+
+		echo "Trimming /dev/$DEV"
 		sudo /sbin/blkdiscard /dev/$DEV
 		yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
 		if [[ $? -ne 0 ]]; then
@@ -221,10 +228,10 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached" "cached";do
+	for c in "uncached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
-				for write_perc in 0 0.5 1;do
+				for write_perc in 0 0.;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
