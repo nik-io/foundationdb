@@ -7,22 +7,17 @@
 AsyncFileTest
 END_COMM
 
-FDBCLI="/mnt/ddi/uringdb/bld/bin/fdbcli"
-FDBSERVER="/mnt/ddi/uringdb/bld/bin/fdbserver"
-LIB="/mnt/ddi/uringdb/liburing/src"
-#use .stub for the stub and .txt for the test
-TEST="/mnt/ddi/uringdb/tests/IOU"
-CLS="/home/ddi/fdb-official/fdb.zac13"
-#device on which  the data and log path are mounted (used for io stat collection)
-MOUNT_POINT="/mnt/nvme/nvme0"
-DEV="nvme0n1"
-DATALOGPATH=${MOUNT_POINT}"/ioutest"
-FILEPATH=${MOUNT_POINT}"/testfiles"
-PAGE_CACHE="10"  #MiB
-RESULTS=`date +%Y-%m-%d_%H-%M-%S`
-hn=$(hostname)
-RESULTS="${RESULTS}-${hn}-ASYNC"
-RESULTS="debug"
+source config.sh || exit 1
+
+#read -p "You have selected $DEV as device and $MOUNT_POINT as mount point. Continuing might wipe them. Are you sureyou want to go on? (y/n)" yn
+#select yn in "y" "n"; do
+#case $yn in
+#	[Nn]*) exit ;;
+#	[Yy]*) echo "Copy that" ;;
+#	# Matching with invalid data
+#	*) echo "Invalid reply (y/n)." && exit 1 ;;
+#esac
+
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -78,12 +73,13 @@ spawn(){
 	#echo "removing ${fn}"
 	#rm ${fn} || true
 
-	#if [[ $TRIM == 1 ]];then
-	if [[ true ]]; then
+	if [[ $TRIM == 1 ]];then
+	#if [[ true ]]; then
 		echo "Copying $fn to $PRE_TEST_FILE"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
-		while [ ! $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) ];do echo "not quiescent" ;sleep 5; done
+		sync $fn
+		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
 	fi
 
 
@@ -112,17 +108,23 @@ spawn(){
 
 setup_test(){
 	if [[ $TRIM == 1 ]];then
-		echo "Trimming /dev/$DEV"
-		um=$(mount | grep $MOUNT_POINT)
-		if [[ -n "$um" ]];then
+		mount | grep -qs $MOUNT_POINT
+		if [ $? -eq 0 ];then
 			echo "umounting $MOUNT_POINT"
-			sudo umount $MOUNT_POINT 
-			ret=$?
-			if [[ $ret -ne 0 ]]; then
-				echo "umount ${MOUNT_POINT} failed with ret $ret"
-			exit 1
-			fi
+
+			while true;do
+				sudo umount $MOUNT_POINT
+				ret=$?
+				if [[ $ret -ne 0 ]]; then
+					echo "umount ${MOUNT_POINT} failed with ret $ret"
+					sleep 10
+				else
+					break
+				fi
+			done
 		fi
+
+		echo "Trimming /dev/$DEV"
 		sudo /sbin/blkdiscard /dev/$DEV
 		yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
 		if [[ $? -ne 0 ]]; then
@@ -229,8 +231,8 @@ for b in "unbuffered"; do
 	for c in "uncached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 64; do
-				for write_perc in 1;do
-					for io in  "io_uring"; do
+				for write_perc in 0 0.;do
+					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
