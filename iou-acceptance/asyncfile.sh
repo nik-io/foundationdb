@@ -66,15 +66,9 @@ spawn(){
 
 	data_dir=${DATALOGPATH}
 
-
-
-	#remove the old test file
 	fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
-	#echo "removing ${fn}"
-	#rm ${fn} || true
 
 	if [[ $TRIM == 1 ]];then
-	#if [[ true ]]; then
 		echo "Copying  $PRE_TEST_FILE to $fn"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
@@ -245,5 +239,5 @@ for b in "unbuffered"; do
 done
 
 
-#comparing to
-#sudo fio --filename=/mnt/nvme/nvme10/aftest.bin  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=128 --runtime=30 --numjobs=20 --time_based --group_reporting --name=throughput-test-job --eta-newline=1 --readonly --size=10G
+#comparing to fio with direct i/o, many parallel  jobs, each  with qd 1 
+#fio --filename=/mnt/nvme/nvme0/testfiles/file.dat  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=1 --runtime=30 --numjobs=64 --time_based --group_reporting --name=throughput-test-job --eta-newline=1  --size=10G --randrepeat=0 --norandommap
