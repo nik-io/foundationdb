@@ -27,7 +27,7 @@ testport=
 
 uring=""
 
-TRIM=0
+TRIM=1
 #If TRIM is enabled, the file has to be retrieved from somewhere to avoid creating it every time
 #Be sure that the name of the file matches the field in the test file
 PRE_TEST_FILE="/mnt/ddi/file.dat"
@@ -66,19 +66,16 @@ spawn(){
 
 	data_dir=${DATALOGPATH}
 
-
-
-	#remove the old test file
 	fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
-	#echo "removing ${fn}"
-	#rm ${fn} || true
 
 	if [[ $TRIM == 1 ]];then
-	#if [[ true ]]; then
-		echo "Copying $fn to $PRE_TEST_FILE"
+		echo "Copying  $PRE_TEST_FILE to $fn"
 		cp $PRE_TEST_FILE $fn
 		echo "Finished copying"
 		sync $fn
+		echo "Sync'd"
+		sudo sh -c "echo '3' > /proc/sys/vm/drop_caches"
+		echo "Cache dropped"
 		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
 	fi
 
@@ -126,7 +123,7 @@ setup_test(){
 
 		echo "Trimming /dev/$DEV"
 		sudo /sbin/blkdiscard /dev/$DEV
-		yes | sudo mkfs.ext4 /dev/$DEV -E nodiscard
+		yes | sudo mkfs.ext4 /dev/$DEV -E lazy_itable_init=0,lazy_journal_init=0,nodiscard
 		if [[ $? -ne 0 ]]; then
 			echo "ext4 failed"
 			exit 1
@@ -228,10 +225,10 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached";do
+	for c in "uncached" "cached";do
 		for run in 1 2 3 4 5; do
-			for parallel_reads in 64; do
-				for write_perc in 0 0.;do
+			for parallel_reads in 1 32 64; do
+				for write_perc in 0 0.5 1;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
@@ -242,5 +239,5 @@ for b in "unbuffered"; do
 done
 
 
-#comparing to
-#sudo fio --filename=/mnt/nvme/nvme10/aftest.bin  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=128 --runtime=30 --numjobs=20 --time_based --group_reporting --name=throughput-test-job --eta-newline=1 --readonly --size=10G
+#comparing to fio with direct i/o, many parallel  jobs, each  with qd 1 
+#fio --filename=/mnt/nvme/nvme0/testfiles/file.dat  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=1 --runtime=30 --numjobs=64 --time_based --group_reporting --name=throughput-test-job --eta-newline=1  --size=10G --randrepeat=0 --norandommap
