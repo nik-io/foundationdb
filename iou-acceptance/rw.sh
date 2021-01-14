@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #!/usr/bin/env bash
 #set -x
-set -e
+#set -e
 
 <<END_COMM
 RW
@@ -19,7 +19,12 @@ testport=
 uring=""
 uring_srv=""
 
-storages=1
+USERGROUP="ddi:sto"
+storages=2
+TRIM=1
+
+#pkill -9 -f fdbserver
+#sleep 1
 
 run_test(){
 	out=${1}
@@ -50,15 +55,6 @@ spawn(){
 
 	data_dir=${DATALOGPATH}
 
-	if [[ $TRIM == 1 ]];then
-	#if [[ true ]]; then
-		echo "Copying $fn to $PRE_TEST_FILE"
-		cp $PRE_TEST_FILE $fn
-		echo "Finished copying"
-		sync $fn
-		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
-	fi
-
 
 	mkdir -p ${DATALOGPATH}
 	echo "removing ${DATALOGPATH}/*"
@@ -87,12 +83,47 @@ spawn(){
 	sleep 5 #give time to join the cluster
 
 	#create the db
-	if [[ $kv == "redwood" ]];then kvs = "ssd-redwood-experimental"; else kvs="ssd-2";fi
+	if [[ $kv == "redwood" ]];then kvs="ssd-redwood-experimental"; else kvs="ssd-2";fi
 	LD_LIBRARY_PATH=${LIB} ${FDBCLI} -C ${CLS} --exec "configure new single ${kvs}"
 	sleep 5
 }
 
 setup_test(){
+
+	if [[ $TRIM == 1 ]];then
+		echo "A"
+		sudo mount | grep -qs $MOUNT_POINT
+		ret=$?
+		echo $ret
+		if [ $ret -eq 0 ];then
+			echo "umounting $MOUNT_POINT"
+
+			while true;do
+				sudo umount $MOUNT_POINT
+				ret=$?
+				if [[ $ret -ne 0 ]]; then
+					echo "umount ${MOUNT_POINT} failed with ret $ret"
+					sleep 10
+				else
+					break
+				fi
+			done
+		fi
+
+		echo "Trimming /dev/$DEV"
+		sudo /sbin/blkdiscard /dev/$DEV
+		yes | sudo mkfs.ext4 /dev/$DEV -E lazy_itable_init=0,lazy_journal_init=0,nodiscard
+		if [[ $? -ne 0 ]]; then
+			echo "ext4 failed"
+			exit 1
+		fi
+		sudo mount /dev/$DEV $MOUNT_POINT
+		if [[ $? -ne 0 ]]; then
+			echo "mount ${MOUNT_POINT} failed"
+			exit 1
+		fi
+		sudo chown -R $USERGROUP ${MOUNT_POINT}
+	fi
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
 	if [[ $1 == "io_uring" ]]; then
 		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
@@ -149,10 +180,22 @@ run_one(){
 
 sec=60
 
+if [[ $TRIM == 1 ]]; then
+	#Keepalive for sudo. https://gist.github.com/cowboy/3118588
+	# Might as well ask for password up-front, right?
+	sudo -v
+	# Keep-alive: update existing sudo time stamp if set, otherwise do nothing.
+	while true; do
+		sudo -n true
+		sleep 60
+		kill -0 "$$" || exit
+	done 2>/dev/null &
+fi
+
 ops=10
 for run in 1 2 3;do
-	for wr in 0 1 9; do
-		for kv in "sqlite" "redwood";do
+	for kv in "sqlite" "redwood";do
+		for wr in 0 1 9; do
 			for io in "io_uring" "kaio";do
 				rd=$(( $ops - $wr ))
 				run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
@@ -164,3 +207,7 @@ done
 
 #comparing to
 #sudo fio --filename=/mnt/nvme/nvme10/aftest.bin  --direct=1 --rw=randread --bs=4k --ioengine=libaio --iodepth=128 --runtime=30 --numjobs=20 --time_based --group_reporting --name=throughput-test-job --eta-newline=1 --readonly --size=10G
+
+
+# LD_LIBRARY_PATH=/mnt/nvme/nvme0/uringdb/liburing/src ../bld/bin/fdbcli -C ~/fdb-official/fdb.cluster --exec "status json" | fdbtop
+# LD_LIBRARY_PATH=/mnt/nvme/nvme0/uringdb/liburing/src PATH=/mnt/nvme/nvme0/uringdb/bld/bin/:$PATH fdbtop -- -C ~/fdb-official/fdb.cluster
