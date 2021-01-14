@@ -7,20 +7,8 @@ set -e
 RW
 END_COMM
 
-FDBCLI="/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbcli"
-FDBSERVER="/mnt/nvme/nvme0/ddi/uringdb/bld/bin/fdbserver"
-LIB="/mnt/nvme/nvme0/ddi/uringdb/liburing/src"
-#use .stub for the stub and .txt for the test
-TEST="/mnt/nvme/nvme0/ddi/uringdb/tests/RW"
-CLS="/home/ddi/fdb.flex14"
-#device on which  the data and log path are mounted (used for io stat collection)
-DEV="nvme0n1"
-DATALOGPATH="/mnt/nvme/nvme0/ioutest"
-FILEPATH="/mnt/nvme/nvme0/testfiles"
-PAGE_CACHE="10"  #MiB
-RESULTS=`date +%Y-%m-%d_%H-%M-%S`
-hn=$(hostname)
-RESULTS="${RESULTS}-${hn}"
+source rwconfig.sh
+
 mkdir -p ${RESULTS} || exit 1
 port=
 
@@ -62,12 +50,14 @@ spawn(){
 
 	data_dir=${DATALOGPATH}
 
-
-
-	#remove the old test file
-	#fn=$(cat ${TEST}.txt | grep "fileName" | cut -d= -f2)
-	#echo "removing ${fn}"
-	#rm ${fn} || true
+	if [[ $TRIM == 1 ]];then
+	#if [[ true ]]; then
+		echo "Copying $fn to $PRE_TEST_FILE"
+		cp $PRE_TEST_FILE $fn
+		echo "Finished copying"
+		sync $fn
+		while [ $(echo "$(iostat 1 1 -y| grep $DEV | awk {'print $4'}) >= 4096" | bc -l) == "1" ];do echo "not quiescent" ;sleep 5; done
+	fi
 
 
 	mkdir -p ${DATALOGPATH}
@@ -93,9 +83,6 @@ spawn(){
 		mkdir -p ${data_dir}/${port} || true
 		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 	done	
-
-	CORE=$(( $CORE + 1 ))
-	port=$(( $port + 1 ))
 
 	sleep 5 #give time to join the cluster
 
@@ -132,8 +119,8 @@ setup_test(){
 }
 
 run_one(){
-	kv=$1
-	duration=$2
+	duration=$1
+	kv=$2
 	reads=$3
 	writes=$4
 	run=$5
