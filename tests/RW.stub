@@ -1,7 +1,7 @@
 testTitle=RandomReadWriteTest
     testName=ReadWrite
     testDuration=TEST_DURATION
-    transactionsPerSecond=2500
+    transactionsPerSecond=0
     writesPerTransactionA=WRITES_PER_TX
     readsPerTransactionA=READS_PER_TX
     alpha=0

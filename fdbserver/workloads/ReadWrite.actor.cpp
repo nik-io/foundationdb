@@ -527,6 +527,7 @@ struct ReadWriteWorkload : KVWorkload {
 
 		self->clientBegin = now();
 		for(int c = 0; c < self->actorCount; c++) {
+			printf("%d actors\n", self->actorCount);
 			Future<Void> worker;
 			if (self->useRYW)
 				worker = self->randomReadWriteClient<ReadYourWritesTransaction>(cx, self, self->actorCount / self->transactionsPerSecond, c);
@@ -579,7 +580,7 @@ struct ReadWriteWorkload : KVWorkload {
 		}
 
 		loop {
-			wait( poisson( &lastTime, delay ) );
+			if( delay ) wait( poisson( &lastTime, delay ) );
 
 			if (self->rampUpConcurrency) {
 				if (now() - startTime >= self->testDuration/2 * (2 - (double(clientIndex) / self->actorCount + double(self->clientId) / self->clientCount / self->actorCount))) {

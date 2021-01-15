@@ -194,8 +194,8 @@ fi
 
 ops=10
 for run in 1 2 3;do
-	for kv in "sqlite" "redwood";do
-		for wr in 0 1 9; do
+	for kv in "sqlite";do
+		for wr in 0 5 10; do
 			for io in "io_uring" "kaio";do
 				rd=$(( $ops - $wr ))
 				run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
