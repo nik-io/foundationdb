@@ -20,7 +20,7 @@ uring=""
 uring_srv=""
 
 USERGROUP="ddi:sto"
-storages=2
+storages=0
 TRIM=1
 
 #pkill -9 -f fdbserver
@@ -73,7 +73,8 @@ spawn(){
 	echo "Test pid is $testpid"
 	
 	#spawn storage servers
-	for s in $(seq 0 $storages);do
+	#seq 0 0 is 0 so it spawns one
+	for s in $(seq 1 $storages);do
 		CORE=$(( $CORE + 1 ))
 		port=$(( ${port} + 1 ))
 		mkdir -p ${data_dir}/${port} || true
@@ -159,7 +160,8 @@ run_one(){
 	CORE=1
 	port=4500
 
-	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_r=${run}.txt"
+	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
+	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_r=${run}.txt"
 	echo ${out_file}
 
 	setup_test $io $kv $duration $reads $writes
@@ -193,12 +195,15 @@ if [[ $TRIM == 1 ]]; then
 fi
 
 ops=10
-for run in 1 2 3;do
-	for kv in "sqlite";do
-		for wr in 0 5 10; do
-			for io in "io_uring" "kaio";do
-				rd=$(( $ops - $wr ))
-				run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
+for cac in 100 2000;do
+	PAGE_CACHE=${cac}
+	for run in 1 2 3 4 5;do
+		for kv in "redwood" "sqlite";do
+			for wr in 0 5 10; do
+				for io in "io_uring" "kaio";do
+					rd=$(( $ops - $wr ))
+					run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
+				done
 			done
 		done
 	done
