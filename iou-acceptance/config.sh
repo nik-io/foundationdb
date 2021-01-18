@@ -13,4 +13,3 @@ PAGE_CACHE="10"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-ASYNC"
-RESULTS="debug"

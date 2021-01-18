@@ -13,4 +13,6 @@ PAGE_CACHE="100"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-KV"
-RESULTS="redwood-test"
+#RESULTS="${RESULTS}-qd1"
+LOG_SHM=1
+RESULTS=tmp

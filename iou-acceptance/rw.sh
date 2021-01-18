@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #!/usr/bin/env bash
-#set -x
+set -x
 #set -e
 
 <<END_COMM
@@ -20,7 +20,8 @@ uring=""
 uring_srv=""
 
 USERGROUP="ddi:sto"
-storages=0
+STORAGES=1
+TESTERS=1
 TRIM=1
 
 #pkill -9 -f fdbserver
@@ -38,9 +39,11 @@ run_test(){
 	#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
 	timepid=$!
 	orchpid=$(pgrep -P $timepid)
-	echo "orch pid ${orchpid}"
+	echo "orch pid ${orchpid}. Waiting to finish"
 	CORE=$(( $CORE + 1 ))
+	set +x
 	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
+	set -x
 }
 
 
@@ -59,10 +62,43 @@ spawn(){
 	mkdir -p ${DATALOGPATH}
 	echo "removing ${DATALOGPATH}/*"
 	rm -rf ${DATALOGPATH}/*
-	#spawn one-process cluster
 	mkdir -p ${data_dir}/${port} || true
-	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+	if [[ $STORAGES == 0 ]];then
+
+		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 	
+	
+	else #we do have more than one storage
+
+		#spawn stateless
+		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c stateless -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+
+
+		#spawn log
+		CORE=$(( $CORE + 1 ))
+		port=$((${port}+1))
+		if [[ $LOG_SHM == 1 ]]; then
+			#https://serverfault.com/questions/960189/why-cant-other-user-remove-dev-shm-xxx-even-with-orw-permissions 
+			tlogd="/mnt/rd/$port"
+			rm -r ${tlogd}
+			mkdir ${tlogd} || true
+			#sudo chown -R ddi:sto ${tlogd}
+			#sudo chown -R $USERGROUP /mnt/ramdir/${port}
+			LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${tlogd} --logdir=${tlogd} &
+		else
+			mkdir ${data_dir}/${port} || true
+			LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+		fi
+		#spawn storage servers
+		#seq 0 0 is 0 so it spawns one
+		for s in $(seq 1 $STORAGES);do
+			CORE=$(( $CORE + 1 ))
+			port=$(( ${port} + 1 ))
+			mkdir -p ${data_dir}/${port} || true
+			LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+		done	
+	fi
+
 	#spawn the test role
 	CORE=$(( $CORE + 1 ))
 	port=$((${port}+1))
@@ -71,15 +107,6 @@ spawn(){
 	testpid=$!
 	testport=${port}
 	echo "Test pid is $testpid"
-	
-	#spawn storage servers
-	#seq 0 0 is 0 so it spawns one
-	for s in $(seq 1 $storages);do
-		CORE=$(( $CORE + 1 ))
-		port=$(( ${port} + 1 ))
-		mkdir -p ${data_dir}/${port} || true
-		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-	done	
 
 	sleep 5 #give time to join the cluster
 
@@ -104,7 +131,7 @@ setup_test(){
 				ret=$?
 				if [[ $ret -ne 0 ]]; then
 					echo "umount ${MOUNT_POINT} failed with ret $ret"
-					sleep 10
+					sleep 2
 				else
 					break
 				fi
@@ -144,6 +171,7 @@ setup_test(){
 	sed -i  "s/TEST_DURATION/$3/g" ${TEST}.txt
 	sed -i  "s/READS_PER_TX/$4/g" ${TEST}.txt
 	sed -i  "s/WRITES_PER_TX/$5/g" ${TEST}.txt
+	sed -i  "s/NUM_ACTORS/$6/g" ${TEST}.txt
 	#replace slash in path with escaped slash
 	#https://unix.stackexchange.com/questions/211834/slash-and-backslash-in-sed
 	file=$(echo "${FILEPATH}/file.dat" |  sed -e 's/\//\\\//g')
@@ -157,14 +185,15 @@ run_one(){
 	writes=$4
 	run=$5
 	io=$6
+	actors=$7
 	CORE=1
 	port=4500
 
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
-	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_r=${run}.txt"
+	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_a=${actors}_st=${STORAGES}_shm=${LOG_SHM}_r=${run}.txt"
 	echo ${out_file}
 
-	setup_test $io $kv $duration $reads $writes
+	setup_test $io $kv $duration $reads $writes $actors
 	cp ${TEST}.txt $RESULTS/TEST_$out_file
 
 	spawn
@@ -194,20 +223,25 @@ if [[ $TRIM == 1 ]]; then
 	done 2>/dev/null &
 fi
 
-ops=10
-for cac in 100 2000;do
+ops=1
+for cac in 100;do
 	PAGE_CACHE=${cac}
 	for run in 1 2 3 4 5;do
-		for kv in "redwood" "sqlite";do
-			for wr in 0 5 10; do
-				for io in "io_uring" "kaio";do
-					rd=$(( $ops - $wr ))
-					run_one  ${sec} ${kv} ${rd} ${wr} ${run} $io
+			for st in 1; do
+				STORAGES=$st
+				for na in 1;do
+					for wr in 0;  do
+						for kv in "sqlite";do
+							for io in "io_uring" "kaio";do
+								rd=$(( $ops - $wr ))
+								run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
+							done
+						done
+					done
 				done
 			done
 		done
 	done
-done
 
 
 #comparing to

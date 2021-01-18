@@ -225,10 +225,10 @@ buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
-	for c in "uncached" "cached";do
+	for c in "uncached";do
 		for run in 1 2 3 4 5; do
 			for parallel_reads in 1 32 64; do
-				for write_perc in 0 0.5 1;do
+				for write_perc in 1 0 0.5;do
 					for io in  "io_uring" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
