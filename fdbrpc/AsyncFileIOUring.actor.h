@@ -202,7 +202,11 @@ public:
 		ctx.evfd = ev->getFD();
 
 		io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		poll_batch(ev);
+		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
+			poll_batch(ev);
+		}else{
+			poll(ev);
+		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
