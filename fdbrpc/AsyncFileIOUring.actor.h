@@ -202,7 +202,7 @@ public:
 		ctx.evfd = ev->getFD();
 
 		io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		poll(ev);
+		poll_batch(ev);
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -703,6 +703,7 @@ private:
 		struct iovec iovec;
 		double startTime;
 		int buffer_index;
+		struct io_uring_cqe *batch_cqes[1024];
 #if IOUring_LOGGING
 		int32_t iolog_id;
 #endif
@@ -786,6 +787,7 @@ private:
 		struct iovec* fixed_buffers;
 		int* buffers_indices;
 		int* buffer_head, *buffer_tail;
+		struct io_uring_cqe * cqes_batch[1024];
 
 		uint32_t opsIssued;
 
@@ -974,6 +976,67 @@ private:
 		return oflags;
 	}
 
+	ACTOR static void poll_batch( Reference<IEventFD> ev){
+		state int rc=0;
+		state io_uring_cqe* cqe;
+		state int64_t to_consume;
+		state int r=0;
+		if(IOUring_TRACING){
+			printf("Waiting\n");
+			int64_t ev_r = wait( ev->read());
+			to_consume=ev_r;
+			printf("Waited %lu\n",ev_r);
+			wait(delay(0, TaskPriority::DiskIOComplete));
+			printf("Rescheduled\n");
+		}else{
+			int64_t ev_r = wait( ev->read());
+			to_consume=ev_r;
+			wait(delay(0, TaskPriority::DiskIOComplete));
+		}
+
+		rc = io_uring_peek_batch_cqe(&ctx.ring, ctx.cqes_batch,to_consume);
+		if(rc<to_consume){
+			printf("io_uring_batch failed: expected %d got %d\n", to_consume,rc);
+			TraceEvent("IOGetEventsError").GetLastError();
+			throw io_error();
+		}
+		int e=0;
+		for(;e<to_consume;e++){
+			struct io_uring_cqe * cqe = ctx.cqes_batch[e];
+			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			ASSERT(iob!=nullptr);
+			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				ctx.removeFromRequestList(iob);
+			}
+			if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+			iob->setResult(cqe->res);
+			io_uring_cqe_seen(&ctx.ring, cqe);
+		}
+
+		if(1){
+
+			if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+
+
+			{
+				++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+			ctx.submitted-=to_consume;
+		}
+	}
 	ACTOR static void poll( Reference<IEventFD> ev){
 		state int rc=0;
 		state io_uring_cqe* cqe;
