@@ -543,6 +543,8 @@ public:
 		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
 			printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
+		//We enter the loop if: 1) there's stuff to push and we can submit at least MIN_SUBMIT without overflowing MAX_OUTSTANDING
+		if (!(ctx.queue.size() && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT)) return;
 		//W.r.t. KAIO, We don't enforce any min_submit. This reduces the variance in performance
 		//We want to call "submit" if we have stuff in the ctx queue or in the ring queue
 		int to_push=ctx.queue.size();
@@ -985,62 +987,64 @@ private:
 		state io_uring_cqe* cqe;
 		state int64_t to_consume;
 		state int r=0;
-		if(IOUring_TRACING){
-			printf("Waiting\n");
-			int64_t ev_r = wait( ev->read());
-			to_consume=ev_r;
-			printf("Waited %lu\n",ev_r);
-			wait(delay(0, TaskPriority::DiskIOComplete));
-			printf("Rescheduled\n");
-		}else{
-			int64_t ev_r = wait( ev->read());
-			to_consume=ev_r;
-			wait(delay(0, TaskPriority::DiskIOComplete));
-		}
-
-		rc = io_uring_peek_batch_cqe(&ctx.ring, ctx.cqes_batch,to_consume);
-		if(rc<to_consume){
-			printf("io_uring_batch failed: expected %d got %d\n", to_consume,rc);
-			TraceEvent("IOGetEventsError").GetLastError();
-			throw io_error();
-		}
-		int e=0;
-		for(;e<to_consume;e++){
-			struct io_uring_cqe * cqe = ctx.cqes_batch[e];
-			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
-			ASSERT(iob!=nullptr);
-			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				ctx.removeFromRequestList(iob);
-			}
-			if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
-			iob->setResult(cqe->res);
-			io_uring_cqe_seen(&ctx.ring, cqe);
-		}
-
-		if(1){
-
-			if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
-
-
-			{
-				++ctx.countAIOCollect;
-				double t = timer_monotonic();
-				double elapsed = t - ctx.ioStallBegin;
-				ctx.ioStallBegin = t;
-				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+		loop{
+			if(IOUring_TRACING){
+				printf("Waiting\n");
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				printf("Waited %lu\n",ev_r);
+				wait(delay(0, TaskPriority::DiskIOComplete));
+				printf("Rescheduled\n");
+			}else{
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				wait(delay(0, TaskPriority::DiskIOComplete));
 			}
 
-			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-				double currentTime = now();
-				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-					ctx.removeFromRequestList(ctx.submittedRequestList);
+			rc = io_uring_peek_batch_cqe(&ctx.ring, ctx.cqes_batch,to_consume);
+			if(rc<to_consume){
+				printf("io_uring_batch failed: expected %d got %d\n", to_consume,rc);
+				TraceEvent("IOGetEventsError").GetLastError();
+				throw io_error();
+			}
+			int e=0;
+			for(;e<to_consume;e++){
+				struct io_uring_cqe * cqe = ctx.cqes_batch[e];
+				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+				ASSERT(iob!=nullptr);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
 				}
+				if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+				iob->setResult(cqe->res);
+				io_uring_cqe_seen(&ctx.ring, cqe);
 			}
-			ctx.submitted-=to_consume;
+
+			if(1){
+
+				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+
+
+				{
+					++ctx.countAIOCollect;
+					double t = timer_monotonic();
+					double elapsed = t - ctx.ioStallBegin;
+					ctx.ioStallBegin = t;
+					g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				}
+
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					double currentTime = now();
+					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+						ctx.removeFromRequestList(ctx.submittedRequestList);
+					}
+				}
+				ctx.submitted-=to_consume;
+			}
 		}
-	}
+}
 	ACTOR static void poll( Reference<IEventFD> ev){
 		state int rc=0;
 		state io_uring_cqe* cqe;
