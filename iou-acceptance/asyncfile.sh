@@ -145,6 +145,12 @@ setup_test(){
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
 		echo "KAIO"
+	elif [[ $1 == "io_uring_batch" ]];then
+		uring="--knob_enable_io_uring true --knob_io_uring_batch true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
+		echo "URING_BATCH"
+	elif [[ $1 == "kaio_nobatch" ]];then
+		uring="--knob_min_submit 1 --knob_page_cache_4k ${pc}"
+		echo "KAIO_NOBATCH"
 	else
 		echo "Mode not supported. Use either io_uring or kaio"
 		exit 1
@@ -226,7 +232,7 @@ cached="uncached"   #cached uncached
 
 for b in "unbuffered"; do
 	for c in "uncached";do
-		for run in 1 2 3 4 5; do
+		ior run in 1 2 3 4 5; do
 			for parallel_reads in 1 32 64; do
 				for write_perc in 1 0 0.5;do
 					for io in  "io_uring" "kaio"; do

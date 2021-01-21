@@ -41,6 +41,10 @@ run_test(){
 	orchpid=$(pgrep -P $timepid)
 	echo "orch pid ${orchpid}. Waiting to finish"
 	CORE=$(( $CORE + 1 ))
+
+	#sudo perf trace -s -p $(ps aux | grep storage | grep -v grep | awk '{print $2}') -o iou_batch_nodirect_poll.perf &
+	#sudo perf record  -F 10  -p $(ps aux | grep storage | grep -v grep | awk '{print $2}') --call-graph dwarf -o rec.perf
+ 
 	set +x
 	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
 	set -x
@@ -79,12 +83,9 @@ spawn(){
 		port=$((${port}+1))
 		if [[ $LOG_SHM == 1 ]]; then
 			#https://serverfault.com/questions/960189/why-cant-other-user-remove-dev-shm-xxx-even-with-orw-permissions 
-			tlogd="/mnt/rd/$port"
-			rm -r ${tlogd}
-			mkdir ${tlogd} || true
-			#sudo chown -R ddi:sto ${tlogd}
-			#sudo chown -R $USERGROUP /mnt/ramdir/${port}
-			LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${tlogd} --logdir=${tlogd} &
+			tlogd="/mnt/ramfs/$port"
+			mkdir ${tlogd} || rm -rf ${tlogd}/*
+			LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${tlogd} --logdir=${tlogd} &
 		else
 			mkdir ${data_dir}/${port} || true
 			LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
@@ -96,6 +97,7 @@ spawn(){
 			port=$(( ${port} + 1 ))
 			mkdir -p ${data_dir}/${port} || true
 			LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+			storageport=${port}
 		done	
 	fi
 
@@ -153,13 +155,28 @@ setup_test(){
 		sudo chown -R $USERGROUP ${MOUNT_POINT}
 	fi
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
-	if [[ $1 == "io_uring" ]]; then
-		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
-		echo "URING"
+	if [[ $1 == "io_uring"* ]];then
+		uring="--knob_enable_io_uring true --knob_page_cache_4k ${pc}" 
+		if [[ $1 == *"direct"* ]];then
+			uring="$uring --knob_io_uring_direct_submit true"
+		fi
+
+		if [[ $1 == *"batch"* ]];then
+			uring="$uring --knob_io_uring_batch true"
+		fi
+
+		if [[ $1 == *"poll"* ]];then
+			uring="$uring --knob_io_uring_poll true"
+		fi
+
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
 		echo "KAIO"
+	elif [[ $1 == "kaio_nobatch" ]];then
+		uring="--knob_min_submit 1 --knob_page_cache_4k ${pc}"
+		echo "KAIO_NOBATCH"
 	else
+
 		echo "Mode not supported. Use either io_uring or kaio"
 		exit 1
 	fi
@@ -206,7 +223,10 @@ run_one(){
 
 	#copy the xml file of the test server 
 	xml=$(ls ${DATALOGPATH}/${testport}/*xml | tail -n1)
-	cp $xml $RESULTS/$out_file.xml
+	#cp $xml $RESULTS/$out_file.xml
+	xml=$(ls ${DATALOGPATH}/${storageport}/*xml | tail -n1)
+	cp $xml $RESULTS/${out_file}.storage.xml
+
 }
 
 sec=60
@@ -223,25 +243,25 @@ if [[ $TRIM == 1 ]]; then
 	done 2>/dev/null &
 fi
 
-ops=1
+ops=10
 for cac in 100;do
 	PAGE_CACHE=${cac}
-	for run in 1 2 3 4 5;do
-			for st in 1; do
-				STORAGES=$st
-				for na in 1;do
-					for wr in 0;  do
-						for kv in "sqlite";do
-							for io in "io_uring" "kaio";do
-								rd=$(( $ops - $wr ))
-								run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
-							done
+	for st in 1; do
+		for kv in "sqlite" "redwood";do
+		STORAGES=$st
+			for wr in  5;  do
+				for run in 1 2 3 4 5;do
+					for na in 1 64;do
+						for io in "io_uring_batch" "io_uring_batch_direct" "kaio";do
+							rd=$(( $ops - $wr ))
+							run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
 						done
 					done
 				done
 			done
 		done
 	done
+done
 
 
 #comparing to
