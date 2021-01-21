@@ -231,6 +231,7 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	init( IO_URING_DIRECT_SUBMIT,							  false); //Bypass the op queue and dispatch  ops to the io_uring ring directly
 	init( IO_URING_FIXED_BUFFERS,							          false); //Use fixed buffers
 	init (IO_URING_BATCH, false);
+	init (IO_URING_POLL, false);
 }
 // clang-format on
 

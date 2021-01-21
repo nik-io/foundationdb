@@ -1659,10 +1659,14 @@ ACTOR Future<UID> createAndLockProcessIdFile(std::string folder) {
 				Reference<IAsyncFile> _lockFile = wait(IAsyncFileSystem::filesystem()->open(lockFilePath, IAsyncFile::OPEN_ATOMIC_WRITE_AND_CREATE | IAsyncFile::OPEN_CREATE | IAsyncFile::OPEN_LOCK | IAsyncFile::OPEN_READWRITE, 0600));
 				lockFile = _lockFile;
 				processIDUid = deterministicRandom()->randomUniqueID();
+				printf("wr\n");
 				BinaryWriter wr(IncludeVersion(ProtocolVersion::withProcessIDFile()));
 				wr << processIDUid;
+				printf("wr <<\n");
 				wait(lockFile.get()->write(wr.getData(), wr.getLength(), 0));
+				printf("Written\n");
 				wait(lockFile.get()->sync());
+				printf("syncd\n");
 			}
 			else {
 				if (lockFile.isError()) throw lockFile.getError(); // If we've failed to open the file, throw an exception

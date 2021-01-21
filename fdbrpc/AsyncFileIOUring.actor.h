@@ -169,6 +169,13 @@ public:
 		}
 
 		r->lastFileSize = r->nextFileSize = buf.st_size;
+		if(FLOW_KNOBS->IO_URING_POLL){
+			int ret = io_uring_register_files(&ctx.ring,&fd,1);
+
+#if IOUring_TRACING
+		printf("IOUR  Registering file %s fd=%u with ret %d\n", open_filename.c_str(), fd,ret);
+#endif
+		}
 		return Reference<IAsyncFile>(std::move(r));
 	}
 
@@ -182,14 +189,24 @@ public:
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
 			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
 		}
-		int rc = io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
-#if IOUring_TRACING
-		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), ctx.queue.size());
-#endif
+		int rc;
+		if(FLOW_KNOBS->IO_URING_POLL){
+			struct io_uring_params params;
+			memset(&params, 0, sizeof(params));
+			params.flags |= IORING_SETUP_SQPOLL;
+			params.sq_thread_idle = 2000;
+			rc = io_uring_queue_init_params(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, &params);
+		}else{
+		 	rc=io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
+		}
 		if (rc<0) {
 			TraceEvent("IOSetupError").GetLastError();
+			printf("Error in iou setup %d %s\n",rc, strerror(-rc));
 			throw io_error();
 		}
+#if IOUring_TRACING
+		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), FLOW_KNOBS->MAX_OUTSTANDING);
+#endif
 		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
 		    ctx.init_buffers();
             rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
@@ -250,6 +267,7 @@ public:
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
 					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 				}else{
 					io->buffer_index= ctx.get_buffer();
 #if IOUring_TRACING
@@ -257,6 +275,8 @@ public:
 #endif
 					struct iovec *iov= &(ctx.fixed_buffers[io->buffer_index]);
 					io_uring_prep_read_fixed(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->buffer_index);
+
+					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 				}
 
 				io_uring_sqe_set_data(sqe, io);
@@ -297,7 +317,7 @@ public:
 		++countFileLogicalWrites;
 		++countLogicalWrites;
 #if IOUring_TRACING
-		printf("Begin logical write on %s\n", filename.c_str());
+		printf("Begin logical write on %s %d\n", filename.c_str(),fd);
 #endif
 		if(failed) {
 			return io_timeout();
@@ -329,6 +349,7 @@ public:
 					iov->iov_base=io->buf;
 					iov->iov_len=io->nbytes;
 					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 				}else{
 					io->buffer_index= ctx.get_buffer();
 					struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
@@ -338,6 +359,7 @@ public:
 #endif
 					memcpy(iov->iov_base,io->buf,io->nbytes);
 					io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 				}
 				io_uring_sqe_set_data(sqe, io);
 
@@ -492,6 +514,7 @@ public:
 		    }else{
 			    io->startTime = startT;
 			    io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+			    if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 			    io_uring_sqe_set_data(sqe, io);
 			    IOUringLogBlockEvent(owner->logFile, io, OpLogEntry::START);
 
@@ -588,10 +611,12 @@ public:
 								iov->iov_base=io->buf;
 								iov->iov_len=io->nbytes;
 								io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							}else{
 								io->buffer_index = ctx.get_buffer();
 								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
 								io_uring_prep_read_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							}
 							break;
 						}
@@ -605,6 +630,7 @@ public:
 								iov->iov_base=io->buf;
 								iov->iov_len=io->nbytes;
 								io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							}else{
 								io->buffer_index= ctx.get_buffer();
 								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
@@ -614,11 +640,13 @@ public:
 #endif
 								memcpy(iov->iov_base,io->buf,io->nbytes);
 								io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
+								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							}
 							break;
 						}
 					case UIO_CMD_FSYNC:
 						io_uring_prep_fsync(sqe, io->aio_fildes, 0);
+						if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 						break;
 					default:
 						UNSTOPPABLE_ASSERT(false);
@@ -1023,7 +1051,7 @@ private:
 
 			if(1){
 
-				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",to_consume);
 
 
 				{
