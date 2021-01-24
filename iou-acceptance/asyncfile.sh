@@ -137,21 +137,29 @@ setup_test(){
 	fi
 
 
-
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
-	if [[ $1 == "io_uring" ]]; then
-		uring="--knob_enable_io_uring true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
-		echo "URING"
+	if [[ $1 == "io_uring"* ]];then
+		uring="--knob_enable_io_uring true --knob_page_cache_4k ${pc}" 
+		if [[ $1 == *"direct"* ]];then
+			uring="$uring --knob_io_uring_direct_submit true"
+		fi
+
+		if [[ $1 == *"batch"* ]];then
+			uring="$uring --knob_io_uring_batch true"
+		fi
+
+		if [[ $1 == *"poll"* ]];then
+			uring="$uring --knob_io_uring_poll true"
+		fi
+
 	elif [[ $1 == "kaio" ]];then
 		uring=" --knob_page_cache_4k ${pc}"
 		echo "KAIO"
-	elif [[ $1 == "io_uring_batch" ]];then
-		uring="--knob_enable_io_uring true --knob_io_uring_batch true --knob_io_uring_direct_submit true --knob_page_cache_4k ${pc}"
-		echo "URING_BATCH"
 	elif [[ $1 == "kaio_nobatch" ]];then
 		uring="--knob_min_submit 1 --knob_page_cache_4k ${pc}"
 		echo "KAIO_NOBATCH"
 	else
+
 		echo "Mode not supported. Use either io_uring or kaio"
 		exit 1
 	fi
@@ -180,7 +188,7 @@ run_one(){
 	CORE=1
 	port=4500
 
-	out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_r=${run}.txt"
+	out_file="io=${io}_s=${duration}_pr=${parallel_reads}_b=${unbuffered}_c=${uncached}_w=${write_fraction}_pc=${PAGE_CACHE}r=${run}.txt"
 	echo ${out_file}
 	if [[ $5 == "cached" ]];then
 		uncached="false"
@@ -230,18 +238,20 @@ sec=90
 buff="unbuffered" #buffered unbuffered
 cached="uncached"   #cached uncached
 
+for PAGE_CACHE in 10 100; do
 for b in "unbuffered"; do
-	for c in "uncached";do
-		ior run in 1 2 3 4 5; do
+	for c in "uncached" "cached";do
+	   for	ior run in 1 2 3 4 5; do
 			for parallel_reads in 1 32 64; do
-				for write_perc in 1 0 0.5;do
-					for io in  "io_uring" "kaio"; do
+				for write_perc in 0 0.5 1;do
+					for io in  "io_uring_batch_direct" "io_uring_batch" "kaio"; do
 						run_one ${io} ${sec} ${parallel_reads} ${b} ${c} ${write_perc} ${run}
 					done #uring
 				done #write perc
 			done #reads
 		done #run
 	done
+done
 done
 
 

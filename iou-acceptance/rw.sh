@@ -1,5 +1,4 @@
-#!/usr/bin/env bash
-#!/usr/bin/env bash
+#!/bin/bash
 set -x
 #set -e
 
@@ -102,13 +101,14 @@ spawn(){
 	fi
 
 	#spawn the test role
-	CORE=$(( $CORE + 1 ))
-	port=$((${port}+1))
-	mkdir ${data_dir}/${port} || true
-	LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-	testpid=$!
-	testport=${port}
-	echo "Test pid is $testpid"
+	for i in $(seq 1 $CLIENTS);do
+		CORE=$(( $CORE + 1 ))
+		port=$((${port}+1))
+		mkdir ${data_dir}/${port} || true
+		LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
+		testpid=$!
+		echo "Test pid is $testpid"
+	done
 
 	sleep 5 #give time to join the cluster
 
@@ -207,7 +207,7 @@ run_one(){
 	port=4500
 
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
-	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_a=${actors}_st=${STORAGES}_shm=${LOG_SHM}_r=${run}.txt"
+	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_a=${actors}_st=${STORAGES}_shm=${LOG_SHM}_clnt=${CLIENTS}r=${run}.txt"
 	echo ${out_file}
 
 	setup_test $io $kv $duration $reads $writes $actors
@@ -222,8 +222,6 @@ run_one(){
 	pkill -9 iostat
 
 	#copy the xml file of the test server 
-	xml=$(ls ${DATALOGPATH}/${testport}/*xml | tail -n1)
-	#cp $xml $RESULTS/$out_file.xml
 	xml=$(ls ${DATALOGPATH}/${storageport}/*xml | tail -n1)
 	cp $xml $RESULTS/${out_file}.storage.xml
 
@@ -244,22 +242,25 @@ if [[ $TRIM == 1 ]]; then
 fi
 
 ops=10
+CLIENTS=2
 for cac in 100;do
 	PAGE_CACHE=${cac}
-	for st in 1; do
-		for kv in "sqlite" "redwood";do
-		STORAGES=$st
-			for wr in  5;  do
-				for run in 1 2 3 4 5;do
-					for na in 1 64;do
-						for io in "io_uring_batch" "io_uring_batch_direct" "kaio";do
-							rd=$(( $ops - $wr ))
-							run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
-						done
-					done
-				done
-			done
-		done
+	for st in 1 2; do
+	for CLIENTS in 1 2; do
+	for kv in "sqlite" "redwood";do
+	STORAGES=$st
+	for wr in 0  5;  do
+	for run in 1 2 3 4 5;do
+	for na in 1 64;do
+	for io in "io_uring_batch" "io_uring_batch_direct" "kaio";do
+	rd=$(( $ops - $wr ))
+	run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
+	done
+	done
+	done
+	done
+	done
+	done
 	done
 done
 
