@@ -23,6 +23,8 @@ STORAGES=1
 TESTERS=1
 TRIM=1
 
+MIN_SUBMIT=10  #default value
+
 #pkill -9 -f fdbserver
 #sleep 1
 
@@ -35,15 +37,15 @@ run_test(){
 	iostat -x 1 -p ${DEV} > ${RESULTS}/iostat_$out &
 
 	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out} 2>&1 &
-	#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
-	timepid=$!
-	orchpid=$(pgrep -P $timepid)
-	echo "orch pid ${orchpid}. Waiting to finish"
-	CORE=$(( $CORE + 1 ))
+		#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
+		timepid=$!
+		orchpid=$(pgrep -P $timepid)
+		echo "orch pid ${orchpid}. Waiting to finish"
+		CORE=$(( $CORE + 1 ))
 
 	#sudo perf trace -s -p $(ps aux | grep storage | grep -v grep | awk '{print $2}') -o iou_batch_nodirect_poll.perf &
 	#sudo perf record  -F 10  -p $(ps aux | grep storage | grep -v grep | awk '{print $2}') --call-graph dwarf -o rec.perf
- 
+
 	set +x
 	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
 	set -x
@@ -69,8 +71,8 @@ spawn(){
 	if [[ $STORAGES == 0 ]];then
 
 		LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-	
-	
+
+
 	else #we do have more than one storage
 
 		#spawn stateless
@@ -156,25 +158,18 @@ setup_test(){
 	fi
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
 	if [[ $1 == "io_uring"* ]];then
-		uring="--knob_enable_io_uring true --knob_page_cache_4k ${pc}" 
+		uring="--knob_enable_io_uring true --knob_page_cache_4k ${pc} --knob_min_submit=${MIN_SUBMIT}" 
 		if [[ $1 == *"direct"* ]];then
-			uring="$uring --knob_io_uring_direct_submit true"
+			uring="$uring --knob_io_uring_direct_submit true --knob_min_submit=${MIN_SUBMIT}"
 		fi
 
 		if [[ $1 == *"batch"* ]];then
-			uring="$uring --knob_io_uring_batch true"
-		fi
-
-		if [[ $1 == *"poll"* ]];then
-			uring="$uring --knob_io_uring_poll true"
+			uring="$uring --knob_io_uring_batch true --knob_min_submit=${MIN_SUBMIT}"
 		fi
 
 	elif [[ $1 == "kaio" ]];then
-		uring=" --knob_page_cache_4k ${pc}"
+		uring=" --knob_page_cache_4k ${pc} --knob_min_submit=${MIN_SUBMIT}"
 		echo "KAIO"
-	elif [[ $1 == "kaio_nobatch" ]];then
-		uring="--knob_min_submit 1 --knob_page_cache_4k ${pc}"
-		echo "KAIO_NOBATCH"
 	else
 
 		echo "Mode not supported. Use either io_uring or kaio"
@@ -207,7 +202,7 @@ run_one(){
 	port=4500
 
 	pc=$(( ${PAGE_CACHE} * 1024 * 1024 ))
-	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_a=${actors}_st=${STORAGES}_shm=${LOG_SHM}_clnt=${CLIENTS}r=${run}.txt"
+	out_file="io=${io}_kv=${kv}_s=${duration}_rd=${reads}_wr=${writes}_c=${PAGE_CACHE}_a=${actors}_st=${STORAGES}_shm=${LOG_SHM}_clnt=${CLIENTS}_ms=${MIN_SUBMIT}r=${run}.txt"
 	echo ${out_file}
 
 	setup_test $io $kv $duration $reads $writes $actors
@@ -244,23 +239,25 @@ fi
 ops=10
 CLIENTS=2
 for cac in 100;do
-	PAGE_CACHE=${cac}
-	for st in 1 2; do
-	for CLIENTS in 1 2; do
 	for kv in "sqlite" "redwood";do
-	STORAGES=$st
-	for wr in 0  5;  do
-	for run in 1 2 3 4 5;do
-	for na in 1 64;do
-	for io in "io_uring_batch" "io_uring_batch_direct" "kaio";do
-	rd=$(( $ops - $wr ))
-	run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
-	done
-	done
-	done
-	done
-	done
-	done
+		PAGE_CACHE=${cac}
+		for st in 1;  do
+			for CLIENTS in 1; do
+				STORAGES=$st
+				for wr in 0 5;  do
+					for run in 1 2 3 4 5;do
+						for na in 1 64;do
+							for MIN_SUBMIT in 10 1; do
+								for io in "kaio" "io_uring" "io_uring_direct";do
+									rd=$(( $ops - $wr ))
+									run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
+								done
+							done
+						done
+					done
+				done
+			done
+		done
 	done
 done
 

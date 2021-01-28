@@ -64,6 +64,10 @@ DESCR struct SlowIOUringSubmit {
 
 typedef struct io_uring io_uring_t;
 static void consume();
+
+
+
+
 class AsyncFileIOUring : public IAsyncFile, public ReferenceCounted<AsyncFileIOUring> {
 public:
 
@@ -136,11 +140,11 @@ public:
 #endif
 			return e;
 		} else {
-			TraceEvent("AsyncFileIOUringOpen")
+			/*TraceEvent("AsyncFileIOUringOpen")
 				.detail("Filename", filename)
 				.detail("Flags", flags)
 				.detail("Mode", mode)
-				.detail("Fd", fd);
+				.detail("Fd", fd);*/
 		}
 #if IOUring_TRACING
 		printf("IOUR Opened %s fd=%u\n", open_filename.c_str(), fd);
@@ -169,13 +173,6 @@ public:
 		}
 
 		r->lastFileSize = r->nextFileSize = buf.st_size;
-		if(FLOW_KNOBS->IO_URING_POLL){
-			int ret = io_uring_register_files(&ctx.ring,&fd,1);
-
-#if IOUring_TRACING
-		printf("IOUR  Registering file %s fd=%u with ret %d\n", open_filename.c_str(), fd,ret);
-#endif
-		}
 		return Reference<IAsyncFile>(std::move(r));
 	}
 
@@ -217,13 +214,6 @@ public:
 
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
-
-		io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
-			poll_batch(ev);
-		}else{
-			poll(ev);
-		}
 
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
@@ -460,9 +450,9 @@ public:
 
 		double end = timer_monotonic();
 		if(nondeterministicRandom()->random01() < end-begin) {
-			TraceEvent("SlowIOUringTruncate")
+			/*TraceEvent("SlowIOUringTruncate")
 				.detail("TruncateTime", end - begin)
-				.detail("TruncateBytes", size - lastFileSize);
+				.detail("TruncateBytes", size - lastFileSize);*/
 		}
 		IOUringLogEvent(logFile, id, OpLogEntry::TRUNCATE, OpLogEntry::COMPLETE, size / 4096, result);
 
@@ -561,12 +551,66 @@ public:
 #endif
 	}
 
+	
+static void fpoll(){
+	int rc=0;
+	io_uring_cqe* cqe;
+	int r=0;
+
+	while(true && r<ctx.submitted){ 
+		if(IOUring_TRACING)printf("Polling with %d submitted\n",ctx.submitted);
+		rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+		if(rc<0){
+			if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){
+				printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+				//TraceEvent("IOGetEventsError").GetLastError();
+				throw io_error();
+			}
+			break;
+		}
+		IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+		ASSERT(iob!=nullptr);
+		IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+		if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+			ctx.removeFromRequestList(iob);
+		}
+		if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+		iob->setResult(cqe->res);
+		io_uring_cqe_seen(&ctx.ring, cqe);
+		r++;
+	}
+	if(r){
+		if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+		{
+			++ctx.countAIOCollect;
+			double t = timer_monotonic();
+			double elapsed = t - ctx.ioStallBegin;
+			ctx.ioStallBegin = t;
+			g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+		}
+
+		if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+			double currentTime = now();
+			while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+				ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+				ctx.removeFromRequestList(ctx.submittedRequestList);
+			}
+		}
+		ctx.submitted-=r;
+	}
+}
+
 	static void launch() {
 #if IOUring_TRACING
 		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
 			printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
 #endif
 		//We enter the loop if: 1) there's stuff to push and we can submit at least MIN_SUBMIT without overflowing MAX_OUTSTANDING
+		
+		if(ctx.submitted){
+			fpoll();
+		}
+
 		if (!(ctx.queue.size() && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT)) return;
 		//W.r.t. KAIO, We don't enforce any min_submit. This reduces the variance in performance
 		//We want to call "submit" if we have stuff in the ctx queue or in the ring queue
@@ -691,12 +735,12 @@ public:
 				ctx.slowAioSubmitMetric->log();
 
 				if(nondeterministicRandom()->random01() < end-begin) {
-					TraceEvent("SlowIOUringLaunch")
+					/*TraceEvent("SlowIOUringLaunch")
 						.detail("IOSubmitTime", end-truncateComplete)
 						.detail("TruncateTime", truncateComplete-begin)
 						.detail("TruncateCount", ctx.countPreSubmitTruncate - previousTruncateCount)
 						.detail("TruncateBytes", ctx.preSubmitTruncateBytes - previousTruncateBytes)
-						.detail("LargestTruncate", largestTruncate);
+						.detail("LargestTruncate", largestTruncate);*/
 				}
 			}
 
@@ -777,16 +821,16 @@ private:
 				fstat( aio_fildes, &fst );
 
 				errno = -r;
-				TraceEvent("AsyncFileIOUringIOError").GetLastError().detail("Fd", aio_fildes).detail("Op", opcode).detail("Nbytes", nbytes).detail("Offset", offset).detail("Ptr", int64_t(buf))
-					.detail("Size", fst.st_size).detail("Filename", owner->filename);
+				/*TraceEvent("AsyncFileIOUringIOError").GetLastError().detail("Fd", aio_fildes).detail("Op", opcode).detail("Nbytes", nbytes).detail("Offset", offset).detail("Ptr", int64_t(buf))
+					.detail("Size", fst.st_size).detail("Filename", owner->filename);*/
 			}
 			deliver( result, owner->failed, r, getTask() );
 			delete this;
 		}
 
 		void timeout(bool warnOnly) {
-			TraceEvent(SevWarnAlways, "AsyncFileIOUringTimeout").detail("Fd", aio_fildes).detail("Op", opcode).detail("Nbytes", nbytes).detail("Offset", offset).detail("Ptr", int64_t(buf))
-				.detail("Filename", owner->filename);
+			/*TraceEvent(SevWarnAlways, "AsyncFileIOUringTimeout").detail("Fd", aio_fildes).detail("Op", opcode).detail("Nbytes", nbytes).detail("Offset", offset).detail("Ptr", int64_t(buf))
+			A	.detail("Filename", owner->filename);*/
 			g_network->setGlobal(INetwork::enASIOTimedOut, (flowGlobalType)true);
 
 			if(!warnOnly)
@@ -957,7 +1001,7 @@ private:
 					logFile = fopen(logFileName.c_str(), "r+");
 					if(logFile == nullptr)
 						logFile = fopen(logFileName.c_str(), "w");
-					if(logFile != nullptr)
+					/*if(logFile != nullptr)
 						TraceEvent("IOUringLogOpened").detail("File", filename).detail("LogFile", logFileName);
 					else {
 						TraceEvent(SevWarn, "IOUringLogOpenFailure")
@@ -965,7 +1009,7 @@ private:
 							.detail("LogFile", logFileName)
 							.detail("ErrorCode", errno)
 							.detail("ErrorDesc", strerror(errno));
-					}
+					}*/
 				} catch(Error &e) {
 					TraceEvent(SevError, "IOUringLogOpenFailure").error(e);
 				}
@@ -1010,7 +1054,7 @@ private:
 		return oflags;
 	}
 
-	ACTOR static void poll_batch( Reference<IEventFD> ev){
+	ACTOR static void poll_batch( Reference<IEventFD> ev, Promise<int> *p ){
 		state int rc=0;
 		state io_uring_cqe* cqe;
 		state int64_t to_consume;
@@ -1018,6 +1062,7 @@ private:
 		loop{
 			if(IOUring_TRACING){
 				printf("Waiting\n");
+				Future<int> fi = (p)->getFuture();
 				int64_t ev_r = wait( ev->read());
 				to_consume=ev_r;
 				printf("Waited %lu\n",ev_r);
@@ -1032,7 +1077,7 @@ private:
 			rc = io_uring_peek_batch_cqe(&ctx.ring, ctx.cqes_batch,to_consume);
 			if(rc<to_consume){
 				printf("io_uring_batch failed: expected %d got %d\n", to_consume,rc);
-				TraceEvent("IOGetEventsError").GetLastError();
+				//TraceEvent("IOGetEventsError").GetLastError();
 				throw io_error();
 			}
 			int e=0;
@@ -1073,6 +1118,7 @@ private:
 			}
 		}
 }
+
 	ACTOR static void poll( Reference<IEventFD> ev){
 		state int rc=0;
 		state io_uring_cqe* cqe;

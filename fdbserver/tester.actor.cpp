@@ -1269,6 +1269,8 @@ ACTOR Future<Void> runTests( Reference<AsyncVar<Optional<struct ClusterControlle
 		if(waitForQuiescenceEnd) {
 			printf("Waiting for DD to end...\n");
 			try {
+				if(true)printf("Skipping\n");
+				else
 				wait(quietDatabase(cx, dbInfo, "End", 0, 2e6, 2e6) ||
 				     (databasePingDelay == 0.0 ? Never()
 				                               : testDatabaseLiveness(cx, databasePingDelay, "QuietDatabaseEnd")));
