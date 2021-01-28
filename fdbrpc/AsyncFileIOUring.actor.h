@@ -170,7 +170,7 @@ public:
 
 		r->lastFileSize = r->nextFileSize = buf.st_size;
 		if(FLOW_KNOBS->IO_URING_POLL){
-			int ret = io_uring_register_files(&ctx.ring,&fd,1);
+		  int ret __attribute__((unused)) = io_uring_register_files(&ctx.ring,&fd,1);
 
 #if IOUring_TRACING
 		printf("IOUR  Registering file %s fd=%u with ret %d\n", open_filename.c_str(), fd,ret);
@@ -1079,21 +1079,33 @@ private:
 		state int64_t to_consume;
 		loop {
 			state int r=0;
-			if(IOUring_TRACING){
-				printf("Waiting\n");
-				int64_t ev_r = wait( ev->read());
-				to_consume=ev_r;
-				printf("Waited %lu\n",ev_r);
-				wait(delay(0, TaskPriority::DiskIOComplete));
-				printf("Rescheduled\n");
-			}else{
-				int64_t ev_r = wait( ev->read());
-				to_consume=ev_r;
-				wait(delay(0, TaskPriority::DiskIOComplete));
-			}
+			// if(IOUring_TRACING){
+			// 	printf("Waiting\n");
+			// 	int64_t ev_r = wait( ev->read());
+			// 	to_consume=ev_r;
+			// 	printf("Waited %lu\n",ev_r);
+			// 	wait(delay(0, TaskPriority::DiskIOComplete));
+			// 	printf("Rescheduled\n");
+			// }else{
+			// 	int64_t ev_r = wait( ev->read());
+			// 	to_consume=ev_r;
+			// 	wait(delay(0, TaskPriority::DiskIOComplete));
+			// }
+			Promise<int64_t> p;
+			std::thread thr= std::thread([&]() {
+						      int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
+						      p.send(rc);
+						    });
+			int64_t tmp = wait(p.getFuture());
+			rc = tmp;
+			// if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+			//   printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+			//   TraceEvent("IOGetEventsError").GetLastError();
+			//   throw io_error();
+			// }
 
-			loop{ //loop as long as there are ready events. Grab at least one
-				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+			// loop{ //loop as long as there are ready events. Grab at least one
+			// 	rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 				if(rc<0){
 					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
 						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
@@ -1129,7 +1141,7 @@ private:
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
-			}
+			// }
 			/*
 			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
 			 */
