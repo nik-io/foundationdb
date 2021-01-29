@@ -30,6 +30,7 @@
 
 #include "fdbrpc/IAsyncFile.h"
 #include <fcntl.h>
+#include <atomic>
 #include <sys/stat.h>
 #include <sys/eventfd.h>
 #include <sys/syscall.h>
@@ -109,8 +110,8 @@ public:
 #endif
 
 
-	static void fpoll(){
-			struct io_uring_cqe *cqe=ctx.cqe;
+	static void complete_io_cqe(struct io_uring_cqe *const  cqe){
+			// struct io_uring_cqe *cqe=ctx.cqe;
 			//thr.join();r
 			// if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
 			//   printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
@@ -124,9 +125,9 @@ public:
 				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
 				ASSERT(iob!=nullptr);
 				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
-				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-					ctx.removeFromRequestList(iob);
-				}
+				// if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				// 	ctx.removeFromRequestList(iob);
+				// }
 				if(IOUring_TRACING)printf("Op result on io %p %d %s\n",iob, cqe->res,strerror(-cqe->res));
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
@@ -140,20 +141,20 @@ public:
 
 
 				{
-					++ctx.countAIOCollect;
-					double t = timer_monotonic();
-					double elapsed = t - ctx.ioStallBegin;
-					ctx.ioStallBegin = t;
-					g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+					// ++ctx.countAIOCollect;
+					// double t = timer_monotonic();
+					// double elapsed = t - ctx.ioStallBegin;
+					// ctx.ioStallBegin = t;
+					// g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
 				}
 
-				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
-					double currentTime = now();
-					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
-						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
-						ctx.removeFromRequestList(ctx.submittedRequestList);
-					}
-				}
+				// if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				// 	double currentTime = now();
+				// 	while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+				// 		ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+				// 		ctx.removeFromRequestList(ctx.submittedRequestList);
+				// 	}
+				// }
 				ctx.submitted-=1;
 			}
 		}
@@ -269,10 +270,11 @@ public:
 
 	 ctx.thr= std::thread([]() {
 				while(true){
-					printf("Waiting_cqe on ctx %p and cqe %p\n", ctx.ring,&ctx.cqe); fflush(stdout);
-					 io_uring_wait_cqe(&ctx.ring, &ctx.cqe);
-					printf("Waited_cqe. cqe now %p. Fpolling \n",ctx.cqe);fflush(stdout);
-					fpoll();
+				  struct io_uring_cqe *cqe;
+					printf("Waiting_cqe on ctx %p and cqe %p\n", ctx.ring,&cqe); fflush(stdout);
+					 io_uring_wait_cqe(&ctx.ring, &cqe);
+					printf("Waited_cqe. cqe now %p. Fpolling \n",cqe);fflush(stdout);
+					complete_io_cqe(cqe);
 					printf("Fpoll done.\n"); fflush(stdout);
 					//ctx.promise.send(rc);
 					 //wait(ctx.waitPromise.getFuture());
@@ -629,7 +631,7 @@ public:
 	static void launch() {
 #if IOUring_TRACING
 		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
-			printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);
+		  printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted.load());
 #endif
 		//We enter the loop if: 1) there's stuff to push and we can submit at least MIN_SUBMIT without overflowing MAX_OUTSTANDING
 		if (!(ctx.queue.size() && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT)) return;
@@ -651,7 +653,7 @@ public:
 			if (!ctx.submitted) ctx.ioStallBegin = begin;
 
 #if IOUring_TRACING
-			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted,FLOW_KNOBS->MAX_OUTSTANDING,to_push);
+			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted.load(), FLOW_KNOBS->MAX_OUTSTANDING,to_push);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -869,7 +871,7 @@ private:
 		/* io_context_t iocx; */
 		int evfd;
 		int outstanding;
-		int submitted;
+	  std::atomic<int> submitted;
 		double ioStallBegin;
 		bool fallocateSupported;
 		bool fallocateZeroSupported;
