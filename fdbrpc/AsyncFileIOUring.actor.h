@@ -44,7 +44,7 @@
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
-#define IOUring_TRACING 0
+#define IOUring_TRACING 1
 #define AVOID_STALLS 0
 
 enum {
@@ -107,6 +107,56 @@ public:
 	#define IOUringLogBlockEvent(...)
 	#define IOUringLogEvent(...)
 #endif
+
+
+	static void fpoll(){
+			struct io_uring_cqe *cqe=ctx.cqe;
+			//thr.join();r
+			// if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+			//   printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+			//   TraceEvent("IOGetEventsError").GetLastError();
+			//   throw io_error();
+			// }
+
+			// loop{ //loop as long as there are ready events. Grab at least one
+			// 	rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+				//We've got an event. Let's consume it
+				IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+				ASSERT(iob!=nullptr);
+				IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					ctx.removeFromRequestList(iob);
+				}
+				if(IOUring_TRACING)printf("Op result on io %p %d %s\n",iob, cqe->res,strerror(-cqe->res));
+				iob->setResult(cqe->res);
+				io_uring_cqe_seen(&ctx.ring, cqe);
+			// }
+			/*
+			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
+			 */
+
+			if(1){
+
+
+
+				{
+					++ctx.countAIOCollect;
+					double t = timer_monotonic();
+					double elapsed = t - ctx.ioStallBegin;
+					ctx.ioStallBegin = t;
+					g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+				}
+
+				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+					double currentTime = now();
+					while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+						ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+						ctx.removeFromRequestList(ctx.submittedRequestList);
+					}
+				}
+				ctx.submitted-=1;
+			}
+		}
 
 	static Future<Reference<IAsyncFile>> open( std::string filename, int flags, int mode ) {
 		ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
@@ -189,6 +239,7 @@ public:
 			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
 			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
 		}
+
 		int rc;
 		if(FLOW_KNOBS->IO_URING_POLL){
 			struct io_uring_params params;
@@ -215,16 +266,30 @@ public:
             }
         }
 
+
+	 ctx.thr= std::thread([]() {
+				while(true){
+					printf("Waiting_cqe on ctx %p and cqe %p\n", ctx.ring,&ctx.cqe); fflush(stdout);
+					 io_uring_wait_cqe(&ctx.ring, &ctx.cqe);
+					printf("Waited_cqe. cqe now %p. Fpolling \n",ctx.cqe);fflush(stdout);
+					fpoll();
+					printf("Fpoll done.\n"); fflush(stdout);
+					//ctx.promise.send(rc);
+					 //wait(ctx.waitPromise.getFuture());
+					//ctx.waitPromise.reset();
+				}});
 		setTimeout(ioTimeout);
 		ctx.evfd = ev->getFD();
 
-		io_uring_register_eventfd(&ctx.ring, ctx.evfd);
+		//io_uring_register_eventfd(&ctx.ring, ctx.evfd);
 		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
+			printf("batch currently not supported\n");
+			UNSTOPPABLE_ASSERT(false);
 			poll_batch(ev);
 		}else{
-			poll(ev);
+			//poll(ev);
 		}
-
+		printf("Setting launch!\n");
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
 
@@ -309,8 +374,8 @@ public:
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
 		}
-    Future<int> result = io->result.getFuture();
-	return result;
+		Future<int> result = io->result.getFuture();
+		return result;
 
 	}
 	Future<Void> write(void const* data, int length, int64_t offset) override {
@@ -781,6 +846,7 @@ private:
 					.detail("Size", fst.st_size).detail("Filename", owner->filename);
 			}
 			deliver( result, owner->failed, r, getTask() );
+			printf("Delivered. Deliting ioBlock %p\n", this);
 			delete this;
 		}
 
@@ -795,7 +861,10 @@ private:
 	};
 
 	struct Context {
+		std::thread thr;
 		Promise<int> promise;
+		Promise<int> waitPromise;
+		struct io_uring_cqe *cqe;
 		io_uring_t ring;
 		/* io_context_t iocx; */
 		int evfd;
@@ -1091,12 +1160,13 @@ private:
 			// 	to_consume=ev_r;
 			// 	wait(delay(0, TaskPriority::DiskIOComplete));
 			// }
-			Promise<int64_t> p;
-			std::thread thr= std::thread([&]() {
-						      int rc = io_uring_wait_cqe(&ctx.ring, &cqe);
-						      p.send(rc);
-						    });
-			int64_t tmp = wait(p.getFuture());
+			printf("Waiting future\n");
+			Future<int> fut = ctx.promise.getFuture();
+			int tmp = wait(fut);
+			ctx.promise.reset();
+			printf("Waited future\n");
+			cqe=ctx.cqe;
+			//thr.join();r
 			rc = tmp;
 			// if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
 			//   printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
