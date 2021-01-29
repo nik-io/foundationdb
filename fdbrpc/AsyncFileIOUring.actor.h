@@ -268,30 +268,23 @@ public:
         }
 
 
-	 ctx.thr= std::thread([]() {
-				while(true){
-				  struct io_uring_cqe *cqe;
-					printf("Waiting_cqe on ctx %p and cqe %p\n", ctx.ring,&cqe); fflush(stdout);
-					 io_uring_wait_cqe(&ctx.ring, &cqe);
-					printf("Waited_cqe. cqe now %p. Fpolling \n",cqe);fflush(stdout);
+		if (! FLOW_KNOBS->IO_URING_EVENTFD) {
+			ctx.thr= std::thread([]() {
+					while(true){
+					struct io_uring_cqe *cqe;
+					io_uring_wait_cqe(&ctx.ring, &cqe);
 					complete_io_cqe(cqe);
-					printf("Fpoll done.\n"); fflush(stdout);
-					//ctx.promise.send(rc);
-					 //wait(ctx.waitPromise.getFuture());
-					//ctx.waitPromise.reset();
-				}});
-		setTimeout(ioTimeout);
-		ctx.evfd = ev->getFD();
-
-		//io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
-			printf("batch currently not supported\n");
-			UNSTOPPABLE_ASSERT(false);
-			poll_batch(ev);
+					}});
 		}else{
-			//poll(ev);
+			ctx.evfd = ev->getFD();
+			io_uring_register_eventfd(&ctx.ring, ctx.evfd);
+			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
+				poll_batch(ev);
+			}else{
+				poll(ev);
+			}
 		}
-		printf("Setting launch!\n");
+		setTimeout(ioTimeout);
 		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
 
@@ -871,7 +864,8 @@ private:
 		/* io_context_t iocx; */
 		int evfd;
 		int outstanding;
-	  std::atomic<int> submitted;
+	  	//std::atomic<int> submitted;
+		int submitted; //TODO if not eventfd this is going to brea
 		double ioStallBegin;
 		bool fallocateSupported;
 		bool fallocateZeroSupported;
