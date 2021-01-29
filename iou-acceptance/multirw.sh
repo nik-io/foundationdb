@@ -3,10 +3,10 @@ set -x
 #set -e
 
 <<END_COMM
-RW
+	RW
 END_COMM
 
-source rwconfig.sh
+source multirwconfig.sh
 
 mkdir -p ${RESULTS} || exit 1
 port=
@@ -27,18 +27,18 @@ run_test(){
 	#https://stackoverflow.com/questions/13356628/how-to-redirect-the-output-of-the-time-command-to-a-file-in-linux
 	iostat -x 1 -p ${DEVS[@]} > ${RESULTS}/iostat_$out &
 
-	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${DATALOGPATH} ;}  > ${RESULTS}/${out} 2>&1 &
-	#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
-	timepid=$!
-	orchpid=$(pgrep -P $timepid)
-	echo "orch pid ${orchpid}. Waiting to finish"
-	CORE=$(( $CORE + 1 ))
+	{ time LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER}  -r multitest -f ${TEST}.txt -C ${CLS} --memory ${mem} ${uring} --logdir=${MNTS[0]}/ ;}  > ${RESULTS}/${out} 2>&1 &
+		#Take the pid of the orchestrator by taking the pid of "time" and pgrepping by parent
+		timepid=$!
+		orchpid=$(pgrep -P $timepid)
+		echo "orch pid ${orchpid}. Waiting to finish"
+		CORE=$(( $CORE + 1 ))
 
- 
-	set +x
-	while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
-	set -x
-}
+
+		set +x
+		while kill -0 $orchpid ; do pmap $testpid | grep total | awk '{print $2}' >> ${RESULTS}/pmap_$out ; sleep 1 ;done
+		set -x
+	}
 
 
 
@@ -52,8 +52,9 @@ spawn(){
 
 	disk_index=0
 
-	data_dir=${MNTS[$disk_index]}/ddi
+	data_dir="${MNTS[disk_index]}/ddi"
 	mkdir -p ${data_dir}/${port} || true
+	rm -rf ${data_dir}/${port}/*
 
 	LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c stateless -C ${CLS} -p auto:${port} --listen_address public ${uring_srv}  --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 
@@ -61,24 +62,26 @@ spawn(){
 	for l in $(seq 1 $LOGS);do
 		CORE=$(( $CORE + 1 ))
 		port=$((${port}+1))
-		data_dir=${MNTS[$disk_index]}/ddi
+		data_dir="${MNTS[disk_index]}/ddi"
 
-		mkdir ${data_dir}/${port} || true
+		mkdir -p n ${data_dir}/${port} || true
+		rm -rf ${data_dir}/${port}/*
 		LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-		if [[ $l % $LOG_PER_DISK == 0 ]];then
+		if [[ $(( $l % $LOG_PER_DISK )) == 0 ]];then
 			disk_index=$(( disk_index + 1 ))
 		fi
 	done
 
-	
+
 	for l in $(seq 1 $STORAGES);do
 		CORE=$(( $CORE + 1 ))
 		port=$((${port}+1))
-		data_dir=${MNTS[$disk_index]}/ddi
+		data_dir="${MNTS[disk_index]}/ddi"
 
-		mkdir ${data_dir}/${port} || true
+		mkdir -p  ${data_dir}/${port} || true
+		rm -rf ${data_dir}/${port}/*
 		LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -c storage -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
-		if [[ $l % $STORAGE_PER_DISK == 0 ]];then
+		if [[ $(( $l % $STORAGE_PER_DISK )) == 0  ]];then
 			disk_index=$(( disk_index + 1 ))
 		fi
 	done
@@ -87,8 +90,9 @@ spawn(){
 		CORE=$(( $CORE + 1 ))
 		port=$((${port}+1))
 
-		data_dir=${MNTS[0]}/ddi
-		mkdir ${data_dir}/${port} || true
+		data_dir="${MNTS[0]}/ddi"
+		mkdir -p  ${data_dir}/${port} || true
+		rm -rf ${data_dir}/${port}/*
 		LD_LIBRARY_PATH=${LIB} taskset -c ${CORE} ${FDBSERVER} -C ${CLS} -c test -p auto:${port} --listen_address public ${uring_srv} --datadir=${data_dir}/${port} --logdir=${data_dir}/${port} &
 		testpid=$!
 		echo "Test pid is $testpid"
@@ -183,17 +187,14 @@ ops=10
 CLIENTS=2
 for cac in 100;do
 	PAGE_CACHE=${cac}
-	for st in 1 2; do
-		for CLIENTS in 1 2; do
-			for kv in "sqlite" "redwood";do
-				STORAGES=$st
-				for wr in 0  5;  do
-					for run in 1 2 3 4 5;do
-						for na in 1 64;do
-							for io in "io_uring_batch" "kaio";do
-								rd=$(( $ops - $wr ))
-								run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
-							done
+	for CLIENTS in 1 2; do
+		for kv in "sqlite" "redwood";do
+			for wr in 0  5;  do
+				for run in 1 2 3 4 5;do
+					for na in 1 64;do
+						for io in "io_uring_batch" "kaio";do
+							rd=$(( $ops - $wr ))
+							run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
 						done
 					done
 				done
