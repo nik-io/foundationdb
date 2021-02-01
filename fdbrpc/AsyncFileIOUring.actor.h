@@ -841,7 +841,6 @@ private:
 					.detail("Size", fst.st_size).detail("Filename", owner->filename);
 			}
 			deliver( result, owner->failed, r, getTask() );
-			printf("Delivered. Deliting ioBlock %p\n", this);
 			delete this;
 		}
 
