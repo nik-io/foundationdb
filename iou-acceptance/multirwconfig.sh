@@ -1,6 +1,5 @@
-set -e
-FDBCLI="/mnt/nvme/nvme0/uringdb/bld/bin/fdbcli"
-FDBSERVER="/mnt/nvme/nvme0/uringdb/bld/bin/fdbserver"
+FDBCLI="/dev/shm/fdb-build/bin/fdbcli"
+FDBSERVER="/dev/shm/fdb-build/bin/fdbserver"
 LIB="/mnt/nvme/nvme0/uringdb/liburing/src"
 #use .stub for the stub and .txt for the test
 TEST="/mnt/nvme/nvme0/uringdb/tests/RW"
@@ -12,14 +11,14 @@ hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-KV"
 RESULTS="aaa"
 
-DEVS=("/dev/nvme3n1" "/dev/nvme4n1" "/dev/nvme5n1" "/dev/nvme6n1" "dev/nvme7n1")
+DEVS=("/dev/nvme3n1" "/dev/nvme4n1" "/dev/nvme5n1" "/dev/nvme6n1" "/dev/nvme7n1")
 MNTS=("/mnt/nvme/nvme3" "/mnt/nvme/nvme4" "/mnt/nvme/nvme5" "/mnt/nvme/nvme6" "/mnt/nvme/nvme7")
 USERGROUP="ddi:sto"
 
 STORAGE_PER_DISK=3
 LOG_PER_DISK=3
 STORAGE_DISKS=3
-LOG_DISKS=3
+LOG_DISKS=1
 
 STORAGES=$(( STORAGE_PER_DISK * STORAGE_DISKS ))
 LOGS=$(( LOG_PER_DISK * LOG_DISKS))
@@ -28,7 +27,7 @@ if [[ $(( $STORAGE_DISKS + $LOG_DISKS + 1 )) > ${#DEVS[@]} ]] || [[ ${#DEVS[@]} 
 	echo "error"
 	exit 1
 fi
-TRIM=0
+TRIM=1
 
 trim(){
 	if [[ $TRIM == 1 ]];then
@@ -55,8 +54,8 @@ trim(){
 				fi
 			fi
 
-			echo "Trimming ${DEV[$1]}"
-			sudo /sbin/blkdiscard ${DEVS[$1]}
+			echo "Trimming ${DEV[$i]}"
+			sudo /sbin/blkdiscard ${DEVS[$i]}
 			yes | sudo mkfs.ext4 ${DEVS[$i]} -E lazy_itable_init=0,lazy_journal_init=0,nodiscard
 			if [[ $? -ne 0 ]]; then
 				echo "ext4 failed"

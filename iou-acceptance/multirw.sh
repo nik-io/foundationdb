@@ -187,12 +187,12 @@ ops=10
 CLIENTS=2
 for cac in 100;do
 	PAGE_CACHE=${cac}
-	for CLIENTS in 1 2; do
+	for CLIENTS in 1; do
 		for kv in "sqlite" "redwood";do
 			for wr in 0  5;  do
 				for run in 1 2 3 4 5;do
 					for na in 1 64;do
-						for io in "io_uring_batch" "kaio";do
+						for io in "kaio"  "io_uring" "io_uring_direct" "kaio";do
 							rd=$(( $ops - $wr ))
 							run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
 						done
