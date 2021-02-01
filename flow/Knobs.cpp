@@ -122,6 +122,7 @@ void FlowKnobs::initialize(bool randomize, bool isSimulated) {
 	init( MIN_SUBMIT,                                           10 );
 	init( ENABLE_IO_URING,										false);
 	init (IO_URING_DIRECT_SUBMIT,								false);
+	init (IO_URING_EVENTFD, true);
 
 	init( PAGE_WRITE_CHECKSUM_HISTORY,                           0 ); if( randomize && BUGGIFY ) PAGE_WRITE_CHECKSUM_HISTORY = 10000000;
 	init( DISABLE_POSIX_KERNEL_AIO,                              0 );
