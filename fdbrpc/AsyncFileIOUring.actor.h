@@ -42,6 +42,9 @@
 #include "flow/crc32c.h"
 #include "flow/genericactors.actor.h"
 #include "flow/actorcompiler.h"  // This must be the last #include.
+#include <asio_uring/asio/execution_context.hpp>
+#include <asio_uring/asio/async_file.hpp>
+#include <asio_uring/fd.hpp>
 
 // Set this to true to enable detailed IOUring request logging, which currently is written to a hardcoded location /data/v7/fdb/
 #define IOUring_LOGGING 0
@@ -230,70 +233,62 @@ public:
 		return Reference<IAsyncFile>(std::move(r));
 	}
 
-	static void init( Reference<IEventFD> ev, double ioTimeout ) {
-		ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
-		if( !g_network->isSimulated() ) {
-			ctx.countAIOSubmit.init(LiteralStringRef("AsyncFile.CountAIOSubmit"));
-			ctx.countAIOCollect.init(LiteralStringRef("AsyncFile.CountAIOCollect"));
-			ctx.submitMetric.init(LiteralStringRef("AsyncFile.Submit"));
-			ctx.countPreSubmitTruncate.init(LiteralStringRef("AsyncFile.CountPreAIOSubmitTruncate"));
-			ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
-			ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
-		}
+    static void init( Reference<IEventFD> ev, double ioTimeout ) {
+	ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
+	if( !g_network->isSimulated() ) {
+	    ctx.countAIOSubmit.init(LiteralStringRef("AsyncFile.CountAIOSubmit"));
+	    ctx.countAIOCollect.init(LiteralStringRef("AsyncFile.CountAIOCollect"));
+	    ctx.submitMetric.init(LiteralStringRef("AsyncFile.Submit"));
+	    ctx.countPreSubmitTruncate.init(LiteralStringRef("AsyncFile.CountPreAIOSubmitTruncate"));
+	    ctx.preSubmitTruncateBytes.init(LiteralStringRef("AsyncFile.PreAIOSubmitTruncateBytes"));
+	    ctx.slowAioSubmitMetric.init(LiteralStringRef("AsyncFile.SlowIOUringSubmit"));
+	}
 
-		int rc;
-		if(FLOW_KNOBS->IO_URING_POLL){
-			struct io_uring_params params;
-			memset(&params, 0, sizeof(params));
-			params.flags |= IORING_SETUP_SQPOLL;
-			params.sq_thread_idle = 2000;
-			rc = io_uring_queue_init_params(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, &params);
-		}else{
-		 	rc=io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
-		}
-		if (rc<0) {
-			TraceEvent("IOSetupError").GetLastError();
-			printf("Error in iou setup %d %s\n",rc, strerror(-rc));
-			throw io_error();
-		}
+	ctx.asio_iou = new asio_uring::asio::execution_context (FLOW_KNOBS->MAX_OUTSTANDING);
+	// return;
+	if (0) {
+	int rc;
+	if(FLOW_KNOBS->IO_URING_POLL) {
+	    struct io_uring_params params;
+	    memset(&params, 0, sizeof(params));
+	    params.flags |= IORING_SETUP_SQPOLL;
+	    params.sq_thread_idle = 2000;
+	    rc = io_uring_queue_init_params(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, &params);
+	}else{
+	    rc=io_uring_queue_init(FLOW_KNOBS->MAX_OUTSTANDING, &ctx.ring, 0);
+	}
+	if (rc<0) {
+	    TraceEvent("IOSetupError").GetLastError();
+	    printf("Error in iou setup %d %s\n",rc, strerror(-rc));
+	    throw io_error();
+	}
 #if IOUring_TRACING
-		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), FLOW_KNOBS->MAX_OUTSTANDING);
+	printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), FLOW_KNOBS->MAX_OUTSTANDING);
 #endif
-		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-		    ctx.init_buffers();
+	if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+	    ctx.init_buffers();
             rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
             if(rc) {
                 throw io_error();
             }
         }
-
-
-	 ctx.thr= std::thread([]() {
-				while(true){
-				  struct io_uring_cqe *cqe;
-					printf("Waiting_cqe on ctx %p and cqe %p\n", ctx.ring,&cqe); fflush(stdout);
-					 io_uring_wait_cqe(&ctx.ring, &cqe);
-					printf("Waited_cqe. cqe now %p. Fpolling \n",cqe);fflush(stdout);
-					complete_io_cqe(cqe);
-					printf("Fpoll done.\n"); fflush(stdout);
-					//ctx.promise.send(rc);
-					 //wait(ctx.waitPromise.getFuture());
-					//ctx.waitPromise.reset();
-				}});
-		setTimeout(ioTimeout);
-		ctx.evfd = ev->getFD();
-
-		//io_uring_register_eventfd(&ctx.ring, ctx.evfd);
-		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
-			printf("batch currently not supported\n");
-			UNSTOPPABLE_ASSERT(false);
-			poll_batch(ev);
-		}else{
-			//poll(ev);
-		}
-		printf("Setting launch!\n");
-		g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
 	}
+
+	setTimeout(ioTimeout);
+	ctx.evfd = ev->getFD();
+	if (0) {
+	io_uring_register_eventfd(&ctx.ring, ctx.evfd);
+	if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_BATCH){
+	    printf("batch currently not supported\n");
+	    UNSTOPPABLE_ASSERT(false);
+	    poll_batch(ev);
+	}else{
+	    poll(ev);
+	}
+	}
+	printf("Setting launch!\n");
+	g_network->setGlobal(INetwork::enRunCycleFunc, (flowGlobalType) &AsyncFileIOUring::launch);
+    }
 
 	static int get_eventfd() { return ctx.evfd; }
 	static void setTimeout(double ioTimeout) { ctx.setIOTimeout(ioTimeout); }
@@ -317,7 +312,25 @@ public:
 		io->offset = offset;
 
 		//We enqueue if > max events have already been pushed to the ring
-		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
+		if (1) {
+		    auto read_handler_local = [] (IOBlock *iob,const boost::system::error_code& ec, std::size_t bytes_transferred) {
+						if (ec) {
+						    fprintf(stderr, "err=%s\n", ec.message());
+						    iob->setResult(ec.value());
+						    return;
+						}
+						ASSERT(bytes_transferred == iob->nbytes);
+						iob->setResult(0);
+					      };
+
+		    asio_iou_fd->async_read_some_at((uint64_t) offset,
+						    boost::asio::mutable_buffers_1( data, length ),
+						    //boost::asio::mutable_buffer( data, length),
+						    //boost::asio::buffer((const char *)data),
+						    boost::bind( &AsyncFileIOUring::read_handler, io, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred ) );
+		    //read_handler_local);
+		    ctx.asio_iou->run_one();
+		} else if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING) {
 
 			double startT=now();
 			struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
@@ -370,7 +383,7 @@ public:
 					ctx.submitted++;
 				}
 			}
-		}else{
+		} else {
 			enqueue(io, "read", this);
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
@@ -380,6 +393,7 @@ public:
 		return result;
 
 	}
+
 	Future<Void> write(void const* data, int length, int64_t offset) override {
 		++countFileLogicalWrites;
 		++countLogicalWrites;
@@ -400,7 +414,17 @@ public:
 		printf("Writing %d bytes at offset %d from buffer %p  %lu\n",io->nbytes, io->offset,io->buf,uint64_t(io->buf)%4096);
 #endif
 
-		if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
+		if (1) {
+
+		    asio_iou_fd->async_write_some_at((uint64_t) offset,
+						    boost::asio::const_buffers_1( data, length ),
+						    //boost::asio::mutable_buffer( data, length),
+						    //boost::asio::buffer((const char *)data),
+						    boost::bind( &AsyncFileIOUring::read_handler, io, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred ) );
+		    //read_handler_local);
+		    // ctx.asio_iou->run();
+		    ctx.asio_iou->run_one();
+		} else if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING) {
 			double startT=now();
 			struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
 			if (nullptr == sqe){
@@ -569,7 +593,11 @@ public:
 	    IOUringLogEvent(logFile, id, OpLogEntry::SYNC, OpLogEntry::START);
 
 	    IOBlock *io = new IOBlock(UIO_CMD_FSYNC, fd);
-	    if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
+	    if (1) {
+		asio_iou_fd->async_flush(boost::bind( &AsyncFileIOUring::fsync_handler, io, boost::asio::placeholders::error) );
+		ctx.asio_iou->run_one();
+
+	    } else if (FLOW_KNOBS->IO_URING_DIRECT_SUBMIT  && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING){
 
 		    double startT=now();
 		    struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.ring);
@@ -626,12 +654,13 @@ public:
 		if(logFile != nullptr)
 			fclose(logFile);
 #endif
+		delete asio_iou_fd;
 	}
 
 	static void launch() {
 #if IOUring_TRACING
 		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
-		  printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted.load());
+		  printf("Launch on %p. Outstanding %d enqueued %d submitted %d\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted.load());
 #endif
 		//We enter the loop if: 1) there's stuff to push and we can submit at least MIN_SUBMIT without overflowing MAX_OUTSTANDING
 		if (!(ctx.queue.size() && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT)) return;
@@ -789,6 +818,7 @@ private:
 
 	Int64MetricHandle countLogicalWrites;
 	Int64MetricHandle countLogicalReads;
+    asio_uring::asio::async_file *asio_iou_fd;
 
 	struct IOBlock : FastAllocated<IOBlock> {
 		Promise<int> result;
@@ -863,7 +893,6 @@ private:
 	};
 
 	struct Context {
-		std::thread thr;
 		Promise<int> promise;
 		Promise<int> waitPromise;
 		struct io_uring_cqe *cqe;
@@ -879,7 +908,7 @@ private:
 		Int64MetricHandle countAIOSubmit;
 		Int64MetricHandle countAIOCollect;
 		Int64MetricHandle submitMetric;
-
+	    asio_uring::asio::execution_context *asio_iou;
 
 		double ioTimeout;
 		bool timeoutWarnOnly;
@@ -1001,7 +1030,27 @@ private:
 		}
 	};
 	static Context ctx;
+    static void fsync_handler (IOBlock *iob,const boost::system::error_code& ec) {
+						if (ec) {
+						    fprintf(stderr, "err=%s\n", ec.message());
+						    iob->setResult(ec.value());
+						    return;
+						}
+						iob->setResult(0);
+					      }
 
+    static void read_handler (IOBlock *iob,const boost::system::error_code& ec, std::size_t bytes_transferred) {
+	if (ec) {
+	    fprintf(stderr, "err=%s\n", ec.message());
+	    iob->setResult(ec.value());
+	    return;
+	}
+	fprintf(stderr, "iob=%p completed %lu bytes.", iob, bytes_transferred);
+	ASSERT(bytes_transferred == iob->nbytes);
+	iob->setResult(0);
+    }
+
+    
 	explicit AsyncFileIOUring(int fd, int flags, std::string const& filename) : fd(fd), flags(flags), filename(filename), failed(false) {
 		ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
 		if( !g_network->isSimulated() ) {
@@ -1010,6 +1059,9 @@ private:
 			countLogicalWrites.init(LiteralStringRef("AsyncFile.CountLogicalWrites"));
 			countLogicalReads.init( LiteralStringRef("AsyncFile.CountLogicalReads"));
 		}
+		asio_uring::fd file(fd);
+		fprintf(stderr, "ctx asioiou=%p fd=%d\n", ctx.asio_iou, fd);
+		asio_iou_fd = new asio_uring::asio::async_file ((*ctx.asio_iou), std::move(file));
 
 #if IOUring_LOGGING
 		logFile = nullptr;
@@ -1150,18 +1202,18 @@ private:
 		state int64_t to_consume;
 		loop {
 			state int r=0;
-			// if(IOUring_TRACING){
-			// 	printf("Waiting\n");
-			// 	int64_t ev_r = wait( ev->read());
-			// 	to_consume=ev_r;
-			// 	printf("Waited %lu\n",ev_r);
-			// 	wait(delay(0, TaskPriority::DiskIOComplete));
-			// 	printf("Rescheduled\n");
-			// }else{
-			// 	int64_t ev_r = wait( ev->read());
-			// 	to_consume=ev_r;
-			// 	wait(delay(0, TaskPriority::DiskIOComplete));
-			// }
+			if(IOUring_TRACING){
+				printf("Waiting\n");
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				printf("Waited %lu\n",ev_r);
+				wait(delay(0, TaskPriority::DiskIOComplete));
+				printf("Rescheduled\n");
+			}else{
+				int64_t ev_r = wait( ev->read());
+				to_consume=ev_r;
+				wait(delay(0, TaskPriority::DiskIOComplete));
+			}
 			printf("Waiting future\n");
 			Future<int> fut = ctx.promise.getFuture();
 			int tmp = wait(fut);
@@ -1170,14 +1222,14 @@ private:
 			cqe=ctx.cqe;
 			//thr.join();r
 			rc = tmp;
-			// if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
-			//   printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
-			//   TraceEvent("IOGetEventsError").GetLastError();
-			//   throw io_error();
-			// }
+			if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+			  printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+			  TraceEvent("IOGetEventsError").GetLastError();
+			  throw io_error();
+			}
 
-			// loop{ //loop as long as there are ready events. Grab at least one
-			// 	rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+			loop{ //loop as long as there are ready events. Grab at least one
+				rc = io_uring_peek_cqe(&ctx.ring, &cqe);
 				if(rc<0){
 					if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
 						printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
@@ -1213,7 +1265,7 @@ private:
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
-			// }
+			}
 			/*
 			 * If nothing was peeked (bc of the dangling eventfd described above), do nothing
 			 */

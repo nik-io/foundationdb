@@ -58,10 +58,28 @@ if(USE_VALGRIND)
   target_link_libraries(thirdparty PUBLIC Valgrind)
 endif()
 
-add_library(uring SHARED IMPORTED) # or STATIC instead of SHARED
+# add_library(uring SHARED IMPORTED) # or STATIC instead of SHARED
+# set_target_properties(uring PROPERTIES
+#   IMPORTED_LOCATION "/home/nio/projects/liburing/src/liburing.so.2.0.0"
+#   #IMPORTED_LOCATION_RELEASE "/home/nio/projects/liburing/src/liburing.a;/home/nio/projects/liburing/libasio_uring_asio.a;/home/nio/projects/liburing/libasio_uring_core.a"
+#         INTERFACE_INCLUDE_DIRECTORIES "/home/nio/projects/liburing/src/include"
+#         )
+add_library(uring STATIC IMPORTED) # or STATIC instead of SHARED
 set_target_properties(uring PROPERTIES
-        IMPORTED_LOCATION "/foundationdb/liburing/src/liburing.so.2.0.0"
-        INTERFACE_INCLUDE_DIRECTORIES "/foundationdb/liburing/src/include"
+  IMPORTED_LOCATION "/home/nio/projects/liburing/src/liburing.a"
+  #IMPORTED_LOCATION_RELEASE "/home/nio/projects/liburing/src/liburing.a;/home/nio/projects/liburing/libasio_uring_asio.a;/home/nio/projects/liburing/libasio_uring_core.a"
+        INTERFACE_INCLUDE_DIRECTORIES "/home/nio/projects/liburing/src/include"
+        )
+
+add_library(asiou1 STATIC IMPORTED) # or STATIC instead of SHARED
+set_target_properties(asiou1 PROPERTIES
+  IMPORTED_LOCATION "/home/nio/projects/liburing/libasio_uring_asio.a"
+        INTERFACE_INCLUDE_DIRECTORIES "/home/nio/projects/liburing/src/include"
+        )
+add_library(asiou2 STATIC IMPORTED) # or STATIC instead of SHARED
+set_target_properties(asiou2 PROPERTIES
+  IMPORTED_LOCATION "/home/nio/projects/liburing/libasio_uring_core.a"
+        INTERFACE_INCLUDE_DIRECTORIES "/home/nio/projects/liburing/src/include"
         )
 
 set(FDBRPC_SRCS_DISABLE_ACTOR_DIAGNOSTICS
@@ -75,6 +93,10 @@ add_flow_target(STATIC_LIBRARY NAME fdbrpc
 
 #target_include_directories(fdbrpc PRIVATE /root/liburing/src/include)
 target_include_directories(fdbrpc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libeio)
+target_link_libraries(fdbrpc PRIVATE asiou1)
+target_link_libraries(fdbrpc PRIVATE asiou2)
 target_link_libraries(fdbrpc PRIVATE uring)
 target_link_libraries(fdbrpc PRIVATE thirdparty)
 target_link_libraries(fdbrpc PUBLIC flow)
+#target_link_libraries(fdbrpc PRIVATE /home/nio/projects/liburing/libasio_uring_asio.a)
+#target_link_libraries(fdbrpc PRIVATE /home/nio/projects/liburing/libasio_uring_core.a)
