@@ -160,9 +160,25 @@ public:
 		}
 
 	static Future<Reference<IAsyncFile>> open( std::string filename, int flags, int mode ) {
+		//TraceEvent("AsyncFileCachedOpen").detail("Filename", filename);
+		if ( openFiles.find(filename) == openFiles.end() ) {
+			auto f = open_impl( filename, flags, mode );
+			if ( f.isReady() && f.isError() )
+				return f;
+			if( !f.isReady() )
+				openFiles[filename].opened = f;
+			else {
+				return f.get();
+			}
+		}
+		return openFiles[filename].get();
+	}
+
+	static Future<Reference<IAsyncFile>> open_impl( std::string filename, int flags, int mode ) {
 		ASSERT( !FLOW_KNOBS->DISABLE_POSIX_KERNEL_AIO );
 		/* IOUring doesn't have to be unbuffered */
-		/* ASSERT( flags & OPEN_UNBUFFERED ); */
+		// have to be both set or both unset
+		ASSERT( 0 == ((!!(flags & OPEN_UNBUFFERED)) ^ (!!(flags & OPEN_UNCACHED))));
 
 		if (flags & OPEN_LOCK)
 			mode |= 02000;  // Enable mandatory locking for this file if it is supported by the filesystem
@@ -194,10 +210,14 @@ public:
 				.detail("Fd", fd);
 		}
 #if IOUring_TRACING
-		printf("IOUR Opened %s fd=%u\n", open_filename.c_str(), fd);
+		printf("IOUR Opened %s fd=%u uncached=%d unbuffered=%d\n", open_filename.c_str(), fd, !!(flags & IAsyncFile::OPEN_UNCACHED), !!(flags & IAsyncFile::OPEN_UNBUFFERED));
 #endif
+		AsyncFileIOUring * const ptr = new AsyncFileIOUring( fd, flags, filename );
+		auto& of = openFiles[filename];
+		of.f = ptr;
+		of.opened = Future<Reference<IAsyncFile>>();
 
-		Reference<AsyncFileIOUring> r(new AsyncFileIOUring( fd, flags, filename ));
+		Reference<AsyncFileIOUring> r(ptr);
 
 		if (flags & OPEN_LOCK) {
 			// Acquire a "write" lock for the entire file
@@ -647,7 +667,7 @@ public:
 			if (!ctx.submitted) ctx.ioStallBegin = begin;
 
 #if IOUring_TRACING
-			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted.load(), FLOW_KNOBS->MAX_OUTSTANDING,to_push);
+			printf("%d events in queue. Outstanding %d Submitted %d max %d. Going to push %d\n",ctx.queue.size(), ctx.outstanding, ctx.submitted, FLOW_KNOBS->MAX_OUTSTANDING,to_push);
 #endif
 			int64_t previousTruncateCount = ctx.countPreSubmitTruncate;
 			int64_t previousTruncateBytes = ctx.preSubmitTruncateBytes;
@@ -775,6 +795,8 @@ public:
 
 	bool failed;
 private:
+	struct OpenFileInfo;
+	static std::map< std::string, OpenFileInfo > openFiles;
 	int fd, flags;
 	int64_t lastFileSize, nextFileSize;
 	std::string filename;
@@ -783,6 +805,19 @@ private:
 
 	Int64MetricHandle countLogicalWrites;
 	Int64MetricHandle countLogicalReads;
+
+	struct OpenFileInfo : NonCopyable {
+		IAsyncFile* f;
+		Future<Reference<IAsyncFile>> opened; // Only valid until the file is fully opened
+
+		OpenFileInfo() : f(0) {}
+		OpenFileInfo(OpenFileInfo&& r) noexcept : f(r.f), opened(std::move(r.opened)) { r.f = 0; }
+
+		Future<Reference<IAsyncFile>> get() {
+			if (f) return Reference<IAsyncFile>::addRef(f);
+			else return opened;
+		}
+	};
 
 	struct IOBlock : FastAllocated<IOBlock> {
 		Promise<int> result;
@@ -1455,6 +1490,7 @@ TEST_CASE("/fdbrpc/AsyncFileIOUring/RequestList") {
 }
 
 AsyncFileIOUring::Context AsyncFileIOUring::ctx;
+std::map< std::string, AsyncFileIOUring::OpenFileInfo > AsyncFileIOUring::openFiles;
 
 #include "flow/unactorcompiler.h"
 #endif

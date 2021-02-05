@@ -54,9 +54,11 @@ Future< Reference<class IAsyncFile> > Net2FileSystem::open( std::string filename
 #endif
 	if ( (flags & IAsyncFile::OPEN_EXCLUSIVE) ) ASSERT( flags & IAsyncFile::OPEN_CREATE );
 	if (!(flags & IAsyncFile::OPEN_UNCACHED)) {
-		if ((!FLOW_KNOBS->ENABLE_IO_URING) || !FLOW_KNOBS->USE_IO_URING_FOR_CACHED)
-			return AsyncFileCached::open(filename, flags, mode);
-		return AsyncFileIOUring::open(filename, flags, mode);
+#ifdef __linux__
+		if (FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->USE_IO_URING_FOR_CACHED)
+			return AsyncFileIOUring::open(filename, flags, mode);
+#endif
+		return AsyncFileCached::open(filename, flags, mode);
 	}
 	Future<Reference<IAsyncFile>> f;
 #ifdef __linux__
