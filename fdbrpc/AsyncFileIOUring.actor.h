@@ -279,13 +279,6 @@ public:
 #if IOUring_TRACING
 		printf("Inited iouring with rc %d. evfd %d queue size=%lu \n",rc,ev->getFD(), FLOW_KNOBS->MAX_OUTSTANDING);
 #endif
-		if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-		    ctx.init_buffers();
-            rc = io_uring_register_buffers(&ctx.ring, ctx.fixed_buffers, FLOW_KNOBS->MAX_OUTSTANDING);
-            if(rc) {
-                throw io_error();
-            }
-        }
 
 
 		if (! FLOW_KNOBS->IO_URING_EVENTFD) {
@@ -342,22 +335,11 @@ public:
 			}else{
 				io->startTime = startT;
 
-				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-					struct iovec *iov= &io->iovec;
-					iov->iov_base=io->buf;
-					iov->iov_len=io->nbytes;
-					io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-				}else{
-					io->buffer_index= ctx.get_buffer();
-#if IOUring_TRACING
-					printf("Reading on fixed_buffer %d\n",io->buffer_index);
-#endif
-					struct iovec *iov= &(ctx.fixed_buffers[io->buffer_index]);
-					io_uring_prep_read_fixed(sqe, io->aio_fildes,  iov->iov_base, io->nbytes, io->offset,io->buffer_index);
-
-					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-				}
+				struct iovec *iov= &io->iovec;
+				iov->iov_base=io->buf;
+				iov->iov_len=io->nbytes;
+				io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+				if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 
 				io_uring_sqe_set_data(sqe, io);
 				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
@@ -424,23 +406,11 @@ public:
 			}else{
 				io->startTime = startT;
 
-				if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-					struct iovec *iov= &io->iovec;
-					iov->iov_base=io->buf;
-					iov->iov_len=io->nbytes;
-					io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
-					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-				}else{
-					io->buffer_index= ctx.get_buffer();
-					struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
-#if IOUring_TRACING
-					printf("IOV %d at address %p\n",io->buffer_index,iov);
-					printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
-#endif
-					memcpy(iov->iov_base,io->buf,io->nbytes);
-					io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
-					if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-				}
+				struct iovec *iov= &io->iovec;
+				iov->iov_base=io->buf;
+				iov->iov_len=io->nbytes;
+				io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+				if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 				io_uring_sqe_set_data(sqe, io);
 
 				ASSERT( !bool(flags & IAsyncFile::OPEN_UNBUFFERED) || int64_t(io->buf) % 4096 == 0);
@@ -467,8 +437,8 @@ public:
 #if IOUring_TRACING
 					printf("DIrect submit failed on write\n", io);
 #endif
-				    //For now, just throw an error
-				    throw io_error();
+					//For now, just throw an error
+					throw io_error();
 				}else{
 #if IOUring_TRACING
 					printf("Directly submitted write on io %p\n", io);
@@ -477,16 +447,16 @@ public:
 				}
 			}
 		}else{
-		    enqueue(io, "write", this);
+			enqueue(io, "write", this);
 		}
 		Future<int> result = io->result.getFuture();
 
 #if IOUring_LOGGING
 		//result = map(result, [=](int r) mutable { IOUringLogBlockEvent(io, OpLogEntry::READY, r); return r; });
 #endif
-        return success(result);
+		return success(result);
 	}
-// TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
+	// TODO(alexmiller): Remove when we upgrade the dev docker image to >14.10
 #ifndef FALLOC_FL_ZERO_RANGE
 #define FALLOC_FL_ZERO_RANGE 0x10
 #endif
@@ -686,18 +656,11 @@ public:
 #if IOUring_TRACING
 							printf("fd %d Reading %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-							if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-								struct iovec *iov= &io->iovec;
-								iov->iov_base=io->buf;
-								iov->iov_len=io->nbytes;
-								io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
-								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-							}else{
-								io->buffer_index = ctx.get_buffer();
-								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
-								io_uring_prep_read_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
-								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-							}
+							struct iovec *iov= &io->iovec;
+							iov->iov_base=io->buf;
+							iov->iov_len=io->nbytes;
+							io_uring_prep_readv(sqe, io->aio_fildes,  iov, 1, io->offset);
+							if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							break;
 						}
 					case UIO_CMD_PWRITE:
@@ -705,23 +668,11 @@ public:
 #if IOUring_TRACING
 							printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
 #endif
-							if(!FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-								struct iovec *iov= &io->iovec;
-								iov->iov_base=io->buf;
-								iov->iov_len=io->nbytes;
-								io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
-								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-							}else{
-								io->buffer_index= ctx.get_buffer();
-								struct iovec *iov= &ctx.fixed_buffers[io->buffer_index];
-
-#if IOUring_TRACING
-								printf("Writing on fixed_buffer %d with base at address %p and alignment %d\n",io->buffer_index,iov->iov_base,uint64_t(iov->iov_base)%4096);
-#endif
-								memcpy(iov->iov_base,io->buf,io->nbytes);
-								io_uring_prep_write_fixed(sqe, io->aio_fildes, iov->iov_base , io->nbytes, io->offset,io->buffer_index);
-								if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
-							}
+							struct iovec *iov= &io->iovec;
+							iov->iov_base=io->buf;
+							iov->iov_len=io->nbytes;
+							io_uring_prep_writev(sqe,io->aio_fildes,iov,1,io->offset);
+							if(FLOW_KNOBS->IO_URING_POLL) sqe->flags |= IOSQE_FIXED_FILE;
 							break;
 						}
 					case UIO_CMD_FSYNC:
@@ -831,8 +782,8 @@ private:
 		IOBlock *next;
 		struct iovec iovec;
 		double startTime;
-		int buffer_index;
-		struct io_uring_cqe *batch_cqes[1024];
+		//int buffer_index;
+		//struct io_uring_cqe *batch_cqes[1024];
 #if IOUring_LOGGING
 		int32_t iolog_id;
 #endif
@@ -924,64 +875,10 @@ private:
 
 		uint32_t opsIssued;
 
-		void init_buffers(){
-			if(FLOW_KNOBS->ENABLE_IO_URING && FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				fixed_buffers = (struct iovec*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(struct iovec));
-				if(fixed_buffers == nullptr){
-					printf("could not init buffers\n");
-					throw io_error();
-				}
-				for (int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++) {
-					//Biggest chunk I could find (in AsyncFile::openFile)
-					const int buf_size=4<<16;
-					fixed_buffers[i].iov_base = aligned_alloc(4096,buf_size);
-					if(fixed_buffers[i].iov_base == nullptr){
-						printf("could not init buffer %d\n",i);
-						throw io_error();
-					}
-
-#if IOUring_TRACING
-					printf("Buffer %d at address %p and base at address %p\n",i,&fixed_buffers[i],fixed_buffers[i].iov_base);
-#endif
-					fixed_buffers[i].iov_len = buf_size;
-					memset(fixed_buffers[i].iov_base, 0, buf_size);
-				}
-				buffers_indices=(int*)malloc(FLOW_KNOBS->MAX_OUTSTANDING * sizeof(int));
-				if(buffers_indices == nullptr){
-					printf("could not init buffer indices\n");
-					throw io_error();
-				}
-				for(int i = 0; i < FLOW_KNOBS->MAX_OUTSTANDING; i++){
-					buffers_indices[i]=i;
-				}
-				buffer_head = buffer_tail = buffers_indices;
-			}
-		}
-
 		Context() : ring(), evfd(-1), outstanding(0), submitted(0), opsIssued(0), ioStallBegin(0), fallocateSupported(true), fallocateZeroSupported(true), submittedRequestList(nullptr) {
 			setIOTimeout(0);
 		}
 
-		int get_buffer(){
-#if IOUring_TRACING
-			printf("Getting buffer %d (position %d)\n", *buffer_head, ((unsigned long)buffer_head-(unsigned long)buffers_indices)/sizeof(int));
-#endif
-			int ret = *buffer_head;
-			const static int *roll = buffers_indices + FLOW_KNOBS->MAX_OUTSTANDING;
-			buffer_head++;
-			if(buffer_head >= roll) buffer_head=buffers_indices;
-			return ret;
-		}
-
-		void  release_buffer(int buffer){
-#if IOUring_TRACING
-			printf("Releasing buffer %d (position %d)\n", buffer, ((unsigned long)buffer_tail-(unsigned long)buffers_indices)/sizeof(int));
-#endif
-			*buffer_tail = buffer;
-			const static int *roll =buffers_indices + FLOW_KNOBS->MAX_OUTSTANDING;
-			buffer_tail++;
-			if(buffer_tail >= roll) buffer_tail=buffers_indices;
-		}
 
 		void setIOTimeout(double timeout) {
 			ioTimeout = fabs(timeout);
@@ -1230,14 +1127,6 @@ private:
 					ctx.removeFromRequestList(iob);
 				}
 				if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
-				if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-					if(iob->opcode == IO_CMD_PREAD){
-						memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
-						ctx.release_buffer(iob->buffer_index);
-					}
-					else if(iob->opcode == IO_CMD_PWRITE)
-						ctx.release_buffer(iob->buffer_index);
-				}
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
 				r++;
