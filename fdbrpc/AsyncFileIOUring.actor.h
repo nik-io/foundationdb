@@ -269,6 +269,7 @@ public:
 
 
 		if (! FLOW_KNOBS->IO_URING_EVENTFD) {
+			printf("thread\n");
 			ctx.thr= std::thread([]() {
 					while(true){
 					struct io_uring_cqe *cqe;
@@ -1137,7 +1138,82 @@ private:
 			}
 		}
 }
-	ACTOR static void poll( Reference<IEventFD> ev){
+
+ACTOR static void poll( Reference<IEventFD> ev){
+	state int rc=0;
+	state io_uring_cqe* cqe;
+	state int64_t to_consume;
+	loop {
+		state int r=0;
+		if(IOUring_TRACING){
+			printf("Waiting\n");
+			int64_t ev_r = wait( ev->read());
+			to_consume=ev_r;
+			printf("Waited %lu\n",ev_r);
+			wait(delay(0, TaskPriority::DiskIOComplete));
+			printf("Rescheduled\n");
+		}else{
+			int64_t ev_r = wait( ev->read());
+			to_consume=ev_r;
+			wait(delay(0, TaskPriority::DiskIOComplete));
+		}
+
+		loop{ 
+			rc = io_uring_peek_cqe(&ctx.ring, &cqe);
+			if(rc<0){
+				if(rc != -EAGAIN && rc != -ETIME && rc != -EINTR){//ERROR
+					printf("io_uring_wait_cqe failed: %d %s\n", rc, strerror(-rc));
+					TraceEvent("IOGetEventsError").GetLastError();
+					throw io_error();
+				}
+				break;
+			}
+			IOBlock * const iob = static_cast<IOBlock*>(io_uring_cqe_get_data(cqe));
+			ASSERT(iob!=nullptr);
+			IOUringLogBlockEvent(iob, OpLogEntry::COMPLETE, cqe->res);
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				ctx.removeFromRequestList(iob);
+			}
+			if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+			if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
+				if(iob->opcode == IO_CMD_PREAD){
+					memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
+					ctx.release_buffer(iob->buffer_index);
+				}
+				else if(iob->opcode == IO_CMD_PWRITE)
+					ctx.release_buffer(iob->buffer_index);
+			}
+			iob->setResult(cqe->res);
+			io_uring_cqe_seen(&ctx.ring, cqe);
+			r++;
+		}
+
+		if(r){
+
+			if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",r);
+
+
+			{
+				++ctx.countAIOCollect;
+				double t = timer_monotonic();
+				double elapsed = t - ctx.ioStallBegin;
+				ctx.ioStallBegin = t;
+				g_network->networkInfo.metrics.secSquaredDiskStall += elapsed*elapsed/2;
+			}
+
+			if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
+				double currentTime = now();
+				while(ctx.submittedRequestList && currentTime - ctx.submittedRequestList->startTime > ctx.ioTimeout) {
+					ctx.submittedRequestList->timeout(ctx.timeoutWarnOnly);
+					ctx.removeFromRequestList(ctx.submittedRequestList);
+				}
+			}
+			ctx.submitted-=r;
+		}
+	}
+}
+
+	ACTOR static void poll_th( Reference<IEventFD> ev){
 		state int rc=0;
 		state io_uring_cqe* cqe;
 		state int64_t to_consume;
