@@ -1107,14 +1107,6 @@ ACTOR static void poll( Reference<IEventFD> ev){
 				ctx.removeFromRequestList(iob);
 			}
 			if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
-			if(FLOW_KNOBS->IO_URING_FIXED_BUFFERS){
-				if(iob->opcode == IO_CMD_PREAD){
-					memcpy(iob->buf,&ctx.fixed_buffers[iob->buffer_index],iob->nbytes);
-					ctx.release_buffer(iob->buffer_index);
-				}
-				else if(iob->opcode == IO_CMD_PWRITE)
-					ctx.release_buffer(iob->buffer_index);
-			}
 			iob->setResult(cqe->res);
 			io_uring_cqe_seen(&ctx.ring, cqe);
 			r++;
