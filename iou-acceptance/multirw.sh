@@ -48,7 +48,7 @@ spawn(){
 	pkill -9 iostat || true
 	pkill -9 pstat || true
 
-	sleep 1
+	sleep 3
 
 	disk_index=0
 
@@ -103,6 +103,8 @@ spawn(){
 	#create the db
 	if [[ $kv == "redwood" ]];then kvs="ssd-redwood-experimental"; else kvs="ssd-2";fi
 	LD_LIBRARY_PATH=${LIB} ${FDBCLI} -C ${CLS} --exec "configure new single ${kvs}"
+
+	echo "DB CREATED"
 	sleep 5
 }
 
@@ -136,7 +138,7 @@ setup_test(){
 		echo "Mode not supported. Use either io_uring or kaio"
 		exit 1
 	fi
-
+	#uring="${uring} --knob_dd_shard_size_granularity 250000"
 	uring_srv=${uring}
 
 	mkdir -p $FILEPATH
@@ -184,15 +186,14 @@ sec=60
 
 
 ops=10
-CLIENTS=2
-for cac in 100;do
+for cac in 10 100;do
 	PAGE_CACHE=${cac}
-	for CLIENTS in 1; do
-		for kv in "sqlite" "redwood";do
-			for wr in 0  5;  do
+	for CLIENTS in 4; do
+		for kv in "sqlite";do
+			for wr in 0 5;  do
 				for run in 1 2 3 4 5;do
-					for na in 1 64;do
-						for io in "kaio"  "io_uring" "io_uring_direct" "kaio";do
+					for na in 64;do
+						for io in "kaio"  "io_uring_batch";do
 							rd=$(( $ops - $wr ))
 							run_one  ${sec} ${kv} ${rd} ${wr} ${run} ${io} ${na} ${st}
 						done
