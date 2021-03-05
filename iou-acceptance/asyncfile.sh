@@ -241,7 +241,7 @@ cached="uncached"   #cached uncached
 for PAGE_CACHE in 10 100; do
 for b in "unbuffered"; do
 	for c in "uncached" "cached";do
-	   for	ior run in 1 2 3 4 5; do
+	   for run in 1 2 3 4 5; do
 			for parallel_reads in 1 32 64; do
 				for write_perc in 0 0.5 1;do
 					for io in  "io_uring_batch_direct" "io_uring_batch" "kaio"; do

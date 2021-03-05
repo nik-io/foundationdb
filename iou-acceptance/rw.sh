@@ -21,7 +21,7 @@ uring_srv=""
 USERGROUP="ddi:sto"
 STORAGES=1
 TESTERS=1
-TRIM=1
+TRIM=0
 
 #pkill -9 -f fdbserver
 #sleep 1
@@ -82,7 +82,7 @@ spawn(){
 		port=$((${port}+1))
 		if [[ $LOG_SHM == 1 ]]; then
 			#https://serverfault.com/questions/960189/why-cant-other-user-remove-dev-shm-xxx-even-with-orw-permissions 
-			tlogd="/mnt/ramfs/$port"
+			tlogd="/mnt/nvme/nvme2/$port"
 			mkdir ${tlogd} || rm -rf ${tlogd}/*
 			LD_LIBRARY_PATH=${LIB}  taskset -c ${CORE} ${FDBSERVER} -c log -C ${CLS} -p auto:${port} --listen_address public ${uring_srv} --datadir=${tlogd} --logdir=${tlogd} &
 		else

@@ -186,10 +186,10 @@ sec=60
 
 
 ops=10
-for cac in 10 100;do
+for cac in 100 10;do
 	PAGE_CACHE=${cac}
-	for CLIENTS in 4; do
-		for kv in "sqlite";do
+	for CLIENTS in 4 8; do
+		for kv in "sqlite" "redwood";do
 			for wr in 0 5;  do
 				for run in 1 2 3 4 5;do
 					for na in 64;do

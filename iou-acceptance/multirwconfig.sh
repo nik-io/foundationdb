@@ -9,21 +9,21 @@ PAGE_CACHE="100"  #MiB
 RESULTS=`date +%Y-%m-%d_%H-%M-%S`
 hn=$(hostname)
 RESULTS="${RESULTS}-${hn}-KV"
-RESULTS="aaa"
 
-DEVS=("/dev/nvme3n1" "/dev/nvme4n1" "/dev/nvme5n1" "/dev/nvme6n1" "/dev/nvme7n1")
-MNTS=("/mnt/nvme/nvme3" "/mnt/nvme/nvme4" "/mnt/nvme/nvme5" "/mnt/nvme/nvme6" "/mnt/nvme/nvme7")
+DEVS=("/dev/nvme3n1" "/dev/nvme4n1" "/dev/nvme5n1" "/dev/nvme6n1" "/dev/nvme7n1" "/dev/nvme8n1" "/dev/nvme9n1" "/dev/nvme10n1" "/dev/nvme11n1")
+MNTS=("/mnt/nvme/nvme3" "/mnt/nvme/nvme4" "/mnt/nvme/nvme5" "/mnt/nvme/nvme6" "/mnt/nvme/nvme7" "/mnt/nvme/nvme8" "/mnt/nvme/nvme9" "/mnt/nvme/nvme10" "/mnt/nvme/nvme11")
 USERGROUP="ddi:sto"
 
-STORAGE_PER_DISK=3
-LOG_PER_DISK=3
-STORAGE_DISKS=3
+STORAGE_PER_DISK=1
+LOG_PER_DISK=1
+STORAGE_DISKS=7
 LOG_DISKS=1
 
 STORAGES=$(( STORAGE_PER_DISK * STORAGE_DISKS ))
 LOGS=$(( LOG_PER_DISK * LOG_DISKS))
-
-if [[ $(( $STORAGE_DISKS + $LOG_DISKS + 1 )) > ${#DEVS[@]} ]] || [[ ${#DEVS[@]} != ${#MNTS[@]} ]];then
+echo "$(( $STORAGE_DISKS + $LOG_DISKS + 1 ))"
+echo "${#DEVS[@]}"
+if [[ $(( $STORAGE_DISKS + $LOG_DISKS + 1 )) -gt ${#DEVS[@]} ]] || [[ ${#DEVS[@]} != ${#MNTS[@]} ]];then
 	echo "error"
 	exit 1
 fi
@@ -40,18 +40,22 @@ trim(){
 			sleep 60
 			kill -0 "$$" || exit
 		done 2>/dev/null &
-
+		echo $(mount)
 		for i in "${!DEVS[@]}"; do 
 			sudo mount | grep -qs ${DEVS[$i]}
 			ret=$?
 			if [ $ret -eq 0 ];then
-				echo "umounting ${DEVS[$i]}"
-				sudo umount ${MNTS[$i]}
-				ret=$?
-				if [[ $ret -ne 0 ]]; then
-					echo "umount ${MNTTS[$1]} failed with ret $ret"
-					exit 1
-				fi
+				while true;do
+					echo "umounting ${DEVS[$i]}"
+					sudo umount ${MNTS[$i]}
+					ret=$?
+					if [[ $ret -ne 0 ]]; then
+						echo "umount ${MNTTS[$1]} failed with ret $ret"
+						sleep 5
+					else
+						break
+					fi
+				done
 			fi
 
 			echo "Trimming ${DEV[$i]}"
